@@ -4,6 +4,28 @@
  * 
  * This file contains practical examples of how to use the ACF Canto Field
  * in your WordPress themes and plugins.
+ * 
+ * ASSET OBJECT STRUCTURE:
+ * When using return format 'object' (default), the field returns an array with:
+ * 
+ * $asset = array(
+ *     'id'           => 'canto_asset_id',     // Canto asset ID (string)
+ *     'scheme'       => 'image',              // Asset type: 'image', 'video', or 'document'
+ *     'name'         => 'Asset Name',         // Asset name/title from Canto
+ *     'url'          => 'preview_url',        // Preview URL (may require authentication)
+ *     'thumbnail'    => 'thumbnail_url',      // Thumbnail URL (direct access or proxy)
+ *     'download_url' => 'download_url',       // Download URL for original file
+ *     'dimensions'   => '1920x1080',          // Image/video dimensions (if available)
+ *     'mime_type'    => 'image/jpeg',         // MIME type (if available)
+ *     'size'         => '2.5 MB',            // Formatted file size (if available)
+ *     'uploaded'     => 'timestamp',          // Upload timestamp (if available)
+ *     'metadata'     => array()               // Additional metadata from Canto
+ * );
+ * 
+ * RETURN FORMATS:
+ * - 'object' (default): Returns the full asset array above
+ * - 'id': Returns just the asset ID as a string
+ * - 'url': Returns just the preview URL as a string
  */
 
 // Exit if accessed directly
@@ -20,7 +42,7 @@ function example_basic_usage() {
     
     if ($canto_asset) {
         echo '<div class="hero-image">';
-        echo '<img src="' . esc_url($canto_asset['url']) . '" alt="' . esc_attr($canto_asset['name']) . '">';
+        echo '<img src="' . esc_url($canto_asset['thumbnail']) . '" alt="' . esc_attr($canto_asset['name']) . '">';
         echo '<div class="image-caption">' . esc_html($canto_asset['name']) . '</div>';
         echo '</div>';
     }
@@ -31,16 +53,20 @@ function example_basic_usage() {
  */
 function example_return_formats() {
     // Field configured to return 'id'
-    $asset_id = get_field('background_image'); // Returns just the ID
+    $asset_id = get_field('background_image'); // Returns just the ID string
     
     // Field configured to return 'url' 
-    $asset_url = get_field('logo_image'); // Returns just the URL
+    $asset_url = get_field('logo_image'); // Returns just the preview URL string
     
     // Field configured to return 'object' (default)
-    $asset_object = get_field('featured_image'); // Returns full object
+    $asset_object = get_field('featured_image'); // Returns full asset object
     
     if ($asset_url) {
         echo '<img src="' . esc_url($asset_url) . '" class="logo">';
+    }
+    
+    if ($asset_object) {
+        echo '<img src="' . esc_url($asset_object['thumbnail']) . '" alt="' . esc_attr($asset_object['name']) . '">';
     }
 }
 
@@ -54,7 +80,7 @@ function example_detailed_display() {
         ?>
         <div class="asset-display">
             <div class="asset-image">
-                <img src="<?php echo esc_url($asset['url']); ?>" alt="<?php echo esc_attr($asset['name']); ?>">
+                <img src="<?php echo esc_url($asset['thumbnail']); ?>" alt="<?php echo esc_attr($asset['name']); ?>">
             </div>
             <div class="asset-details">
                 <h3><?php echo esc_html($asset['name']); ?></h3>
@@ -69,6 +95,10 @@ function example_detailed_display() {
                 
                 <?php if (!empty($asset['mime_type'])): ?>
                     <p><strong>Type:</strong> <?php echo esc_html($asset['mime_type']); ?></p>
+                <?php endif; ?>
+                
+                <?php if (!empty($asset['scheme'])): ?>
+                    <p><strong>Asset Type:</strong> <?php echo esc_html(ucfirst($asset['scheme'])); ?></p>
                 <?php endif; ?>
                 
                 <?php if (!empty($asset['download_url'])): ?>
@@ -99,7 +129,8 @@ function example_asset_gallery() {
                 <div class="gallery-item">
                     <img src="<?php echo esc_url($asset['thumbnail']); ?>" 
                          alt="<?php echo esc_attr($asset['name']); ?>"
-                         data-full-size="<?php echo esc_url($asset['url']); ?>">
+                         data-full-size="<?php echo esc_url($asset['url']); ?>"
+                         data-download="<?php echo esc_url($asset['download_url']); ?>">
                     <div class="gallery-caption">
                         <?php echo esc_html($asset['name']); ?>
                     </div>
@@ -121,25 +152,33 @@ function example_asset_type_handling() {
     if ($asset) {
         switch ($asset['scheme']) {
             case 'image':
-                echo '<img src="' . esc_url($asset['url']) . '" alt="' . esc_attr($asset['name']) . '">';
+                echo '<img src="' . esc_url($asset['thumbnail']) . '" alt="' . esc_attr($asset['name']) . '">';
                 break;
                 
             case 'video':
-                echo '<video controls>';
-                echo '<source src="' . esc_url($asset['url']) . '" type="' . esc_attr($asset['mime_type']) . '">';
-                echo 'Your browser does not support the video tag.';
-                echo '</video>';
+                // For videos, use the preview URL if available, otherwise show thumbnail
+                if (!empty($asset['url'])) {
+                    echo '<video controls poster="' . esc_url($asset['thumbnail']) . '">';
+                    echo '<source src="' . esc_url($asset['url']) . '" type="' . esc_attr($asset['mime_type']) . '">';
+                    echo 'Your browser does not support the video tag.';
+                    echo '</video>';
+                } else {
+                    echo '<img src="' . esc_url($asset['thumbnail']) . '" alt="' . esc_attr($asset['name']) . '">';
+                }
                 break;
                 
             case 'document':
-                echo '<a href="' . esc_url($asset['download_url']) . '" class="document-link">';
+                echo '<a href="' . esc_url($asset['download_url']) . '" class="document-link" target="_blank">';
                 echo '<span class="document-icon">📄</span>';
                 echo esc_html($asset['name']);
+                if (!empty($asset['size'])) {
+                    echo ' (' . esc_html($asset['size']) . ')';
+                }
                 echo '</a>';
                 break;
                 
             default:
-                echo '<a href="' . esc_url($asset['url']) . '">' . esc_html($asset['name']) . '</a>';
+                echo '<a href="' . esc_url($asset['download_url']) . '" target="_blank">' . esc_html($asset['name']) . '</a>';
         }
     }
 }
@@ -167,9 +206,17 @@ function get_canto_responsive_image($field_name, $post_id = null) {
     }
     
     // Build responsive image HTML
-    $html = '<img src="' . esc_url($asset['url']) . '" ';
+    $html = '<img src="' . esc_url($asset['thumbnail']) . '" ';
     $html .= 'alt="' . esc_attr($asset['name']) . '" ';
     $html .= 'loading="lazy" ';
+    
+    // Add data attributes for higher resolution if needed
+    if (!empty($asset['url'])) {
+        $html .= 'data-src="' . esc_url($asset['url']) . '" ';
+    }
+    if (!empty($asset['download_url'])) {
+        $html .= 'data-download="' . esc_url($asset['download_url']) . '" ';
+    }
     
     // Add dimensions if available
     if (!empty($asset['dimensions'])) {
@@ -227,14 +274,45 @@ function canto_asset_shortcode($atts) {
         return '';
     }
     
-    return '<img src="' . esc_url($asset['url']) . '" ' .
+    return '<img src="' . esc_url($asset['thumbnail']) . '" ' .
            'alt="' . esc_attr($asset['name']) . '" ' .
-           'class="' . esc_attr($atts['class']) . '">';
+           'class="' . esc_attr($atts['class']) . '" ' .
+           'data-asset-id="' . esc_attr($asset['id']) . '">';
 }
 add_shortcode('canto_asset', 'canto_asset_shortcode');
 
 /**
- * Example 10: Custom meta query for posts with Canto assets
+ * Example 10: Working with asset metadata
+ */
+function example_asset_metadata() {
+    $asset = get_field('hero_image');
+    
+    if ($asset && !empty($asset['metadata'])) {
+        echo '<div class="asset-metadata">';
+        echo '<h4>Asset Information</h4>';
+        
+        // Common metadata fields that might be available
+        $metadata_fields = array(
+            'Copyright' => 'Copyright',
+            'Keywords' => 'Keywords', 
+            'Description' => 'Description',
+            'Creator' => 'Creator',
+            'Title' => 'Title',
+            'Subject' => 'Subject'
+        );
+        
+        foreach ($metadata_fields as $key => $label) {
+            if (!empty($asset['metadata'][$key])) {
+                echo '<p><strong>' . esc_html($label) . ':</strong> ' . esc_html($asset['metadata'][$key]) . '</p>';
+            }
+        }
+        
+        echo '</div>';
+    }
+}
+
+/**
+ * Example 11: Custom meta query for posts with Canto assets
  */
 function example_meta_query() {
     $posts = new WP_Query(array(
@@ -272,16 +350,24 @@ function example_meta_query() {
 // views/components/canto-image.twig
 {% if asset %}
     <div class="canto-image {{ class|default('') }}">
-        <img src="{{ asset.url }}" 
+        <img src="{{ asset.thumbnail }}" 
              alt="{{ asset.name }}" 
              {% if asset.dimensions %}
                  {% set dims = asset.dimensions|split('x') %}
                  width="{{ dims[0]|trim }}" 
                  height="{{ dims[1]|trim }}"
              {% endif %}
+             {% if asset.url %}data-full-src="{{ asset.url }}"{% endif %}
+             {% if asset.download_url %}data-download="{{ asset.download_url }}"{% endif %}
              loading="lazy">
         {% if show_caption and asset.name %}
             <div class="image-caption">{{ asset.name }}</div>
+        {% endif %}
+        {% if show_details %}
+            <div class="image-details">
+                {% if asset.size %}<span class="file-size">{{ asset.size }}</span>{% endif %}
+                {% if asset.dimensions %}<span class="dimensions">{{ asset.dimensions }}</span>{% endif %}
+            </div>
         {% endif %}
     </div>
 {% endif %}
@@ -291,13 +377,59 @@ function example_meta_query() {
     <div class="canto-gallery">
         {% for item in gallery %}
             {% if item.image %}
-                <div class="gallery-item">
+                <div class="gallery-item" data-asset-id="{{ item.image.id }}">
                     <img src="{{ item.image.thumbnail }}" 
                          alt="{{ item.image.name }}"
-                         data-full="{{ item.image.url }}">
+                         data-full="{{ item.image.url }}"
+                         data-download="{{ item.image.download_url }}">
+                    <div class="gallery-overlay">
+                        <h4>{{ item.image.name }}</h4>
+                        {% if item.image.scheme %}
+                            <span class="asset-type">{{ item.image.scheme|title }}</span>
+                        {% endif %}
+                    </div>
                 </div>
             {% endif %}
         {% endfor %}
+    </div>
+{% endif %}
+
+// views/components/canto-video.twig
+{% if asset and asset.scheme == 'video' %}
+    <div class="canto-video">
+        {% if asset.url %}
+            <video controls poster="{{ asset.thumbnail }}">
+                <source src="{{ asset.url }}" type="{{ asset.mime_type|default('video/mp4') }}">
+                Your browser does not support the video tag.
+            </video>
+        {% else %}
+            <div class="video-placeholder">
+                <img src="{{ asset.thumbnail }}" alt="{{ asset.name }}">
+                <div class="video-info">
+                    <h4>{{ asset.name }}</h4>
+                    {% if asset.download_url %}
+                        <a href="{{ asset.download_url }}" class="download-btn" target="_blank">Download Video</a>
+                    {% endif %}
+                </div>
+            </div>
+        {% endif %}
+    </div>
+{% endif %}
+
+// views/components/canto-document.twig
+{% if asset and asset.scheme == 'document' %}
+    <div class="canto-document">
+        <div class="document-icon">
+            <img src="{{ asset.thumbnail }}" alt="Document icon">
+        </div>
+        <div class="document-info">
+            <h4>{{ asset.name }}</h4>
+            {% if asset.size %}<p class="file-size">{{ asset.size }}</p>{% endif %}
+            {% if asset.mime_type %}<p class="file-type">{{ asset.mime_type }}</p>{% endif %}
+            {% if asset.download_url %}
+                <a href="{{ asset.download_url }}" class="download-btn" target="_blank">Download Document</a>
+            {% endif %}
+        </div>
     </div>
 {% endif %}
 */

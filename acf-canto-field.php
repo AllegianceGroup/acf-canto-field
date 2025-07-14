@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: ACF Canto Field
- * Plugin URI: https://github.com/your-username/acf-canto-field
+ * Plugin URI: https://github.com/AllegianceGroup/acf-canto-field
  * Description: A custom ACF field that integrates with the Canto plugin to allow users to select assets directly from their Canto library.
  * Version: 1.0.0
  * Author: AGP
