@@ -27,6 +27,7 @@ class ACF_Canto_AJAX_Handler
         add_action('wp_ajax_acf_canto_get_asset', array($this, 'get_asset'));
         add_action('wp_ajax_acf_canto_get_tree', array($this, 'get_tree'));
         add_action('wp_ajax_acf_canto_get_album', array($this, 'get_album_assets'));
+        add_action('wp_ajax_acf_canto_find_by_filename', array($this, 'find_by_filename'));
     }
     
     /**
@@ -325,6 +326,7 @@ class ACF_Canto_AJAX_Handler
             'id' => $data['id'],
             'scheme' => $scheme,
             'name' => isset($data['name']) ? $data['name'] : 'Untitled',
+            'filename' => '', // Will be extracted from metadata or name
             'url' => '',
             'thumbnail' => '',
             'download_url' => '',
@@ -396,6 +398,33 @@ class ACF_Canto_AJAX_Handler
             }
             if (isset($data['default']['Content Type'])) {
                 $asset['mime_type'] = $data['default']['Content Type'];
+            }
+            
+            // Extract filename from various possible metadata fields
+            $filename_fields = array('Filename', 'File Name', 'Original Filename', 'filename', 'file_name');
+            foreach ($filename_fields as $field) {
+                if (isset($data['default'][$field]) && !empty($data['default'][$field])) {
+                    $asset['filename'] = $data['default'][$field];
+                    break;
+                }
+            }
+        }
+        
+        // If no filename found in metadata, try to extract from name or construct from ID
+        if (empty($asset['filename'])) {
+            // If name contains file extension, use it as filename
+            if (preg_match('/\.[a-zA-Z0-9]{2,5}$/', $asset['name'])) {
+                $asset['filename'] = $asset['name'];
+            } else {
+                // Construct filename using asset name and scheme-based extension
+                $extension_map = array(
+                    'image' => 'jpg',
+                    'video' => 'mp4', 
+                    'document' => 'pdf'
+                );
+                $extension = isset($extension_map[$scheme]) ? $extension_map[$scheme] : 'bin';
+                $safe_name = preg_replace('/[^a-zA-Z0-9_-]/', '_', $asset['name']);
+                $asset['filename'] = $safe_name . '.' . $extension;
             }
         }
         
@@ -685,5 +714,58 @@ class ACF_Canto_AJAX_Handler
         }
 
         wp_send_json_success($assets);
+    }
+    
+    /**
+     * Find asset by filename via AJAX
+     */
+    public function find_by_filename()
+    {
+        // Debug logging
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('ACF Canto: find_by_filename called');
+        }
+
+        // Verify nonce
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'acf_canto_nonce')) {
+            wp_die('Security check failed');
+        }
+        
+        // Check if user has permission
+        if (!current_user_can('edit_posts')) {
+            wp_die('Insufficient permissions');
+        }
+        
+        // Check if Canto is available
+        if (!get_option('fbc_app_token')) {
+            wp_send_json_error('Canto API token not configured');
+            return;
+        }
+        
+        $filename = isset($_POST['filename']) ? sanitize_text_field($_POST['filename']) : '';
+        
+        if (empty($filename)) {
+            wp_send_json_error('Filename required');
+            return;
+        }
+        
+        // Debug logging
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('ACF Canto: Searching for filename: ' . $filename);
+        }
+        
+        // Use the field class method for consistency
+        if (class_exists('ACF_Field_Canto')) {
+            $field = new ACF_Field_Canto();
+            $asset = $field->find_asset_by_filename($filename);
+            
+            if ($asset) {
+                wp_send_json_success($asset);
+            } else {
+                wp_send_json_error('Asset not found with filename: ' . $filename);
+            }
+        } else {
+            wp_send_json_error('ACF Canto Field class not available');
+        }
     }
 }

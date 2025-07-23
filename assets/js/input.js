@@ -290,8 +290,9 @@
                 
                 $item.append($details);
                 
-                // Mark as selected if it's the current value
-                if (asset.id === $hiddenInput.val()) {
+                // Mark as selected if it's the current value (filename match)
+                var currentFilename = $hiddenInput.val();
+                if (asset.filename === currentFilename || asset.name === currentFilename) {
                     $item.addClass('selected');
                     selectedAsset = asset;
                     $confirmBtn.prop('disabled', false);
@@ -338,18 +339,57 @@
             if (!selectedAsset) {
                 return;
             }
-            
-            // Update hidden input
-            $hiddenInput.val(selectedAsset.id);
-            
-            // Update preview
-            updatePreview(selectedAsset);
-            
-            // Close modal
-            closeModal();
-            
-            // Trigger change event
-            $field.trigger('change');
+
+            // Get full asset data via AJAX to ensure we have filename
+            var data = {
+                action: 'acf_canto_get_asset',
+                nonce: acf_canto.nonce,
+                asset_id: selectedAsset.id
+            };
+
+            $.post(acf_canto.ajax_url, data)
+                .done(function(response) {
+                    if (response.success && response.data) {
+                        var fullAssetData = response.data;
+                        
+                        // Store just the filename as a string
+                        var filename = fullAssetData.filename || selectedAsset.name;
+                        $hiddenInput.val(filename);
+                        
+                        // Update preview with full asset data
+                        updatePreview(fullAssetData);
+                        
+                        // Close modal
+                        closeModal();
+                        
+                        // Trigger change event
+                        $field.trigger('change');
+                    } else {
+                        // Fallback: use asset name as filename
+                        var fallbackFilename = selectedAsset.name;
+                        // Add extension if missing
+                        if (fallbackFilename.indexOf('.') === -1) {
+                            fallbackFilename += '.jpg'; // default extension
+                        }
+                        
+                        $hiddenInput.val(fallbackFilename);
+                        updatePreview(selectedAsset);
+                        closeModal();
+                        $field.trigger('change');
+                    }
+                })
+                .fail(function() {
+                    // Fallback: use asset name as filename
+                    var fallbackFilename = selectedAsset.name;
+                    if (fallbackFilename.indexOf('.') === -1) {
+                        fallbackFilename += '.jpg';
+                    }
+                    
+                    $hiddenInput.val(fallbackFilename);
+                    updatePreview(selectedAsset);
+                    closeModal();
+                    $field.trigger('change');
+                });
         }
         
         /**

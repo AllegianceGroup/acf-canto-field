@@ -3,7 +3,7 @@
  * Plugin Name: ACF Canto Field
  * Plugin URI: https://github.com/AllegianceGroup/acf-canto-field
  * Description: A custom ACF field that integrates with the Canto plugin to allow users to select assets directly from their Canto library.
- * Version: 1.0.0
+ * Version: 1.1.0
  * Author: AGP
  * Author URI: https://teamallegiance.com
  * License: GPL v2 or later
@@ -22,9 +22,58 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('ACF_CANTO_FIELD_VERSION', '1.0.0');
+define('ACF_CANTO_FIELD_VERSION', '1.1.0');
 define('ACF_CANTO_FIELD_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('ACF_CANTO_FIELD_PLUGIN_PATH', plugin_dir_path(__FILE__));
+
+/**
+ * Helper function to find Canto asset by filename
+ *
+ * @param string $filename The filename to search for
+ * @return array|false Asset data if found, false otherwise
+ */
+function acf_canto_find_asset_by_filename($filename) {
+    if (!class_exists('ACF_Field_Canto')) {
+        return false;
+    }
+    
+    // Create temporary instance to use the search method
+    $field = new ACF_Field_Canto();
+    return $field->find_asset_by_filename($filename);
+}
+
+/**
+ * Helper function to get asset data with filename fallback
+ *
+ * @param string $identifier Can be asset ID or filename
+ * @return array|false Asset data if found, false otherwise
+ */
+function acf_canto_get_asset($identifier) {
+    if (empty($identifier)) {
+        return false;
+    }
+    
+    if (!class_exists('ACF_Field_Canto')) {
+        return false;
+    }
+    
+    $field = new ACF_Field_Canto();
+    
+    // If it looks like an asset ID (starts with common Canto ID patterns), try direct lookup first
+    if (preg_match('/^[a-zA-Z0-9_-]+$/', $identifier) && strlen($identifier) > 10) {
+        $asset_data = $field->get_canto_asset_data($identifier);
+        if ($asset_data) {
+            return $asset_data;
+        }
+    }
+    
+    // If direct lookup failed or identifier looks like a filename, try filename search
+    if (strpos($identifier, '.') !== false) {
+        return $field->find_asset_by_filename($identifier);
+    }
+    
+    return false;
+}
 define('ACF_CANTO_FIELD_PLUGIN_BASENAME', plugin_basename(__FILE__));
 
 /**

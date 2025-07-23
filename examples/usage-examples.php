@@ -8,10 +8,16 @@
  * ASSET OBJECT STRUCTURE:
  * When using return format 'object' (default), the field returns an array with:
  * 
+ * FIELD STORAGE:
+ * - The field now stores only the filename as a string (e.g., "company-logo.png")
+ * - Asset ID and other data are dynamically retrieved from Canto when needed
+ * 
+ * RETURNED ASSET DATA:
  * $asset = array(
- *     'id'           => 'canto_asset_id',     // Canto asset ID (string)
+ *     'id'           => 'canto_asset_id',     // Canto asset ID (dynamically retrieved)
  *     'scheme'       => 'image',              // Asset type: 'image', 'video', or 'document'
  *     'name'         => 'Asset Name',         // Asset name/title from Canto
+ *     'filename'     => 'example.jpg',        // Original filename (stored in field)
  *     'url'          => 'preview_url',        // Preview URL (may require authentication)
  *     'thumbnail'    => 'thumbnail_url',      // Thumbnail URL (direct access or proxy)
  *     'download_url' => 'download_url',       // Download URL for original file
@@ -44,6 +50,81 @@ function example_basic_usage() {
         echo '<div class="hero-image">';
         echo '<img src="' . esc_url($canto_asset['thumbnail']) . '" alt="' . esc_attr($canto_asset['name']) . '">';
         echo '<div class="image-caption">' . esc_html($canto_asset['name']) . '</div>';
+        echo '<div class="filename">Filename: ' . esc_html($canto_asset['filename']) . '</div>';
+        echo '</div>';
+    }
+}
+
+/**
+ * Example 1b: Using filename for migration tracking
+ */
+function example_filename_for_migration() {
+    // Get the field value (now just returns the filename string)
+    $filename = get_field('document_asset'); // Returns filename string directly
+    
+    if ($filename) {
+        // Use filename as identifier for migration processes
+        $migration_key = 'migrated_' . sanitize_file_name($filename);
+        
+        // Check if this file has already been migrated
+        if (!get_option($migration_key)) {
+            // Get full asset data using the filename
+            $canto_asset = acf_canto_find_asset_by_filename($filename);
+            
+            if ($canto_asset) {
+                // Perform migration logic here
+                $local_file_path = download_and_save_asset($canto_asset);
+                
+                // Mark as migrated using filename as identifier
+                update_option($migration_key, array(
+                    'original_filename' => $filename,
+                    'local_path' => $local_file_path,
+                    'canto_id' => $canto_asset['id'], // Retrieved dynamically
+                    'migrated_date' => current_time('mysql')
+                ));
+            }
+        }
+    }
+}
+
+/**
+ * Example 1c: Finding assets by filename
+ */
+function example_find_by_filename() {
+    // Find an asset by its filename
+    $filename = 'company-logo.png';
+    $asset = acf_canto_find_asset_by_filename($filename);
+    
+    if ($asset) {
+        echo '<div class="found-asset">';
+        echo '<h3>Found: ' . esc_html($asset['name']) . '</h3>';
+        echo '<img src="' . esc_url($asset['thumbnail']) . '" alt="' . esc_attr($asset['name']) . '">';
+        echo '<p>Asset ID: ' . esc_html($asset['id']) . '</p>';
+        echo '<p>Filename: ' . esc_html($asset['filename']) . '</p>';
+        echo '</div>';
+    } else {
+        echo '<p>Asset not found with filename: ' . esc_html($filename) . '</p>';
+    }
+}
+
+/**
+ * Example 1d: Flexible asset retrieval (ID or filename)
+ */
+function example_flexible_retrieval() {
+    // This function can handle both asset IDs and filenames
+    $identifier = 'product-brochure.pdf'; // Could also be an asset ID
+    $asset = acf_canto_get_asset($identifier);
+    
+    if ($asset) {
+        echo '<div class="flexible-asset">';
+        echo '<h3>' . esc_html($asset['name']) . '</h3>';
+        echo '<p>Found using identifier: ' . esc_html($identifier) . '</p>';
+        echo '<p>Actual filename: ' . esc_html($asset['filename']) . '</p>';
+        echo '<p>Asset ID: ' . esc_html($asset['id']) . '</p>';
+        
+        if ($asset['download_url']) {
+            echo '<a href="' . esc_url($asset['download_url']) . '" target="_blank">Download</a>';
+        }
         echo '</div>';
     }
 }

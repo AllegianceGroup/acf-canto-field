@@ -120,8 +120,12 @@ class ACF_Field_Canto extends acf_field
         $canto_data = null;
         
         // Get Canto data if we have a value
+        $canto_data = null;
+        
         if ($value) {
-            $canto_data = $this->get_canto_asset_data($value);
+            // Value is now just the filename
+            $filename = (string) $value;
+            $canto_data = $this->find_asset_by_filename($filename);
         }
         
         ?>
@@ -280,16 +284,237 @@ class ACF_Field_Canto extends acf_field
             return false;
         }
         
+        // Value is now just the filename string
+        $filename = (string) $value;
+        
+        // Find the asset by filename
+        $asset_data = $this->find_asset_by_filename($filename);
+        
+        if (!$asset_data) {
+            return false;
+        }
+        
+        return $this->prepare_return_value($asset_data, $field);
+    }
+    
+    /**
+     * Prepare return value based on field return format
+     *
+     * @param array|false $asset_data The asset data
+     * @param array $field The field configuration
+     * @return mixed
+     */
+    private function prepare_return_value($asset_data, $field)
+    {
+        if (!$asset_data) {
+            return false;
+        }
+        
         // Check return format
         if ($field['return_format'] == 'id') {
-            return $value;
+            return $asset_data['id'];
         } elseif ($field['return_format'] == 'url') {
-            $asset_data = $this->get_canto_asset_data($value);
             return isset($asset_data['url']) ? $asset_data['url'] : false;
         } else {
             // Return full object
-            return $this->get_canto_asset_data($value);
+            return $asset_data;
         }
+    }
+    
+    /**
+     * Parse stored value - Legacy support for migration from old formats
+     * This can be removed after migration is complete
+     *
+     * @param mixed $value The stored value
+     * @return string The filename
+     */
+    private function parse_legacy_value($value)
+    {
+        // Handle old JSON format for migration purposes
+        if (is_string($value) && (strpos($value, '{') === 0)) {
+            $decoded = json_decode($value, true);
+            if (is_array($decoded) && isset($decoded['filename'])) {
+                return $decoded['filename'];
+            }
+        }
+        
+        // For now, assume anything else is a filename
+        return (string) $value;
+    }
+    
+    /**
+     * Search for asset by filename
+     *
+     * @param string $filename The filename to search for
+     * @return array|false Asset data if found, false otherwise
+     */
+    public function find_asset_by_filename($filename)
+    {
+        if (empty($filename)) {
+            return false;
+        }
+        
+        // Try cache first
+        $cache_key = 'canto_filename_' . md5($filename);
+        $cached_data = get_transient($cache_key);
+        
+        if ($cached_data !== false) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('ACF Canto Field: Using cached data for filename: ' . $filename);
+            }
+            return $cached_data;
+        }
+        
+        // Get Canto configuration
+        $domain = get_option('fbc_flight_domain');
+        $app_api = get_option('fbc_app_api') ?: 'canto.com';
+        $token = get_option('fbc_app_token');
+        
+        if (!$domain || !$token) {
+            return false;
+        }
+        
+        // Search for the filename using Canto search API
+        $search_url = 'https://' . $domain . '.' . $app_api . '/api/v1/search?keyword=' . urlencode($filename) . '&limit=50';
+        
+        $headers = array(
+            'Authorization' => 'Bearer ' . $token,
+            'User-Agent' => 'WordPress Plugin',
+            'Content-Type' => 'application/json;charset=utf-8'
+        );
+        
+        $response = wp_remote_get($search_url, array(
+            'headers' => $headers,
+            'timeout' => 30
+        ));
+        
+        if (is_wp_error($response)) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('ACF Canto Field: Filename search failed: ' . $response->get_error_message());
+            }
+            return false;
+        }
+        
+        $body = wp_remote_retrieve_body($response);
+        $http_code = wp_remote_retrieve_response_code($response);
+        
+        if ($http_code !== 200 || empty($body)) {
+            return false;
+        }
+        
+        $data = json_decode($body, true);
+        if (!$data || !isset($data['results'])) {
+            return false;
+        }
+        
+        // Look for exact filename match
+        foreach ($data['results'] as $item) {
+            $asset_data = $this->format_asset_data_from_search($item);
+            if ($asset_data && $asset_data['filename'] === $filename) {
+                // Cache for 1 hour
+                set_transient($cache_key, $asset_data, HOUR_IN_SECONDS);
+                return $asset_data;
+            }
+        }
+        
+        // If no filename match found, try matching against the name field
+        // This handles cases where assets don't have explicit filename metadata
+        foreach ($data['results'] as $item) {
+            $asset_data = $this->format_asset_data_from_search($item);
+            if ($asset_data && $asset_data['name'] === $filename) {
+                // Cache for 1 hour
+                set_transient($cache_key, $asset_data, HOUR_IN_SECONDS);
+                return $asset_data;
+            }
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Format asset data from search results
+     *
+     * @param array $data Raw asset data from search API
+     * @return array|false Formatted asset data
+     */
+    private function format_asset_data_from_search($data)
+    {
+        if (!is_array($data) || !isset($data['id'])) {
+            return false;
+        }
+        
+        // Determine asset type
+        $scheme = 'image'; // default
+        if (isset($data['scheme'])) {
+            $scheme = $data['scheme'];
+        } elseif (isset($data['url']['preview'])) {
+            if (strpos($data['url']['preview'], '/video/') !== false) {
+                $scheme = 'video';
+            } elseif (strpos($data['url']['preview'], '/document/') !== false) {
+                $scheme = 'document';
+            }
+        }
+        
+        $formatted_data = array(
+            'id' => $data['id'],
+            'scheme' => $scheme,
+            'name' => isset($data['name']) ? $data['name'] : 'Untitled',
+            'filename' => '',
+            'url' => '',
+            'thumbnail' => '',
+            'download_url' => '',
+            'dimensions' => '',
+            'mime_type' => '',
+            'size' => '',
+            'uploaded' => isset($data['lastUploaded']) ? $data['lastUploaded'] : '',
+            'metadata' => isset($data['default']) ? $data['default'] : array(),
+        );
+        
+        // Extract filename from metadata
+        if (isset($data['default']) && is_array($data['default'])) {
+            $filename_fields = array('Filename', 'File Name', 'Original Filename', 'filename', 'file_name');
+            foreach ($filename_fields as $field) {
+                if (isset($data['default'][$field]) && !empty($data['default'][$field])) {
+                    $formatted_data['filename'] = $data['default'][$field];
+                    break;
+                }
+            }
+        }
+        
+        // If no filename found, construct from name
+        if (empty($formatted_data['filename'])) {
+            if (preg_match('/\.[a-zA-Z0-9]{2,5}$/', $formatted_data['name'])) {
+                $formatted_data['filename'] = $formatted_data['name'];
+            } else {
+                $extension_map = array('image' => 'jpg', 'video' => 'mp4', 'document' => 'pdf');
+                $extension = isset($extension_map[$scheme]) ? $extension_map[$scheme] : 'bin';
+                $safe_name = preg_replace('/[^a-zA-Z0-9_-]/', '_', $formatted_data['name']);
+                $formatted_data['filename'] = $safe_name . '.' . $extension;
+            }
+        }
+        
+        // Get URLs and other data (similar to existing logic)
+        $domain = get_option('fbc_flight_domain');
+        $app_api = get_option('fbc_app_api') ?: 'canto.com';
+        
+        if (isset($data['url'])) {
+            if (isset($data['url']['preview'])) {
+                $formatted_data['url'] = $data['url']['preview'];
+            }
+            if (isset($data['url']['download'])) {
+                $formatted_data['download_url'] = $data['url']['download'];
+            }
+            if (isset($data['url']['directUrlPreview'])) {
+                $formatted_data['thumbnail'] = $data['url']['directUrlPreview'];
+            }
+        }
+        
+        // Fallback thumbnail
+        if (empty($formatted_data['thumbnail']) && $domain) {
+            $formatted_data['thumbnail'] = home_url('canto-thumbnail/' . $scheme . '/' . $data['id']);
+        }
+        
+        return $formatted_data;
     }
     
     /**
@@ -410,6 +635,7 @@ class ACF_Field_Canto extends acf_field
             'id' => $asset_id,
             'scheme' => $scheme,
             'name' => isset($data['name']) ? $data['name'] : 'Untitled',
+            'filename' => '', // Will be extracted from metadata or name
             'url' => '',
             'thumbnail' => '',
             'download_url' => '',
@@ -477,6 +703,33 @@ class ACF_Field_Canto extends acf_field
             }
             if (isset($data['default']['Content Type'])) {
                 $formatted_data['mime_type'] = $data['default']['Content Type'];
+            }
+            
+            // Extract filename from various possible metadata fields
+            $filename_fields = array('Filename', 'File Name', 'Original Filename', 'filename', 'file_name');
+            foreach ($filename_fields as $field) {
+                if (isset($data['default'][$field]) && !empty($data['default'][$field])) {
+                    $formatted_data['filename'] = $data['default'][$field];
+                    break;
+                }
+            }
+        }
+        
+        // If no filename found in metadata, try to extract from name or construct from ID
+        if (empty($formatted_data['filename'])) {
+            // If name contains file extension, use it as filename
+            if (preg_match('/\.[a-zA-Z0-9]{2,5}$/', $formatted_data['name'])) {
+                $formatted_data['filename'] = $formatted_data['name'];
+            } else {
+                // Construct filename using asset name and scheme-based extension
+                $extension_map = array(
+                    'image' => 'jpg',
+                    'video' => 'mp4', 
+                    'document' => 'pdf'
+                );
+                $extension = isset($extension_map[$scheme]) ? $extension_map[$scheme] : 'bin';
+                $safe_name = preg_replace('/[^a-zA-Z0-9_-]/', '_', $formatted_data['name']);
+                $formatted_data['filename'] = $safe_name . '.' . $extension;
             }
         }
         
