@@ -56,7 +56,7 @@ Both views show asset thumbnails, names, and basic metadata. Users can select an
 
 #### Getting the field value
 
-**Note:** The field now stores only the filename as a string. When you call `get_field()`, the plugin automatically looks up the full asset data from Canto using the filename.
+**Note:** The field now stores the asset download URL as a string. When you call `get_field()`, the plugin automatically extracts the asset ID from the download URL and loads the full asset data from Canto.
 
 ```php
 // Get the complete asset object (default)
@@ -68,30 +68,32 @@ if ($canto_asset) {
     echo '<p>File Size: ' . $canto_asset['size'] . '</p>';
     echo '<p>Asset Type: ' . $canto_asset['scheme'] . '</p>';
     echo '<p>Filename: ' . $canto_asset['filename'] . '</p>';
+    echo '<a href="' . $canto_asset['download_url'] . '">Download Original</a>';
 }
 
-// When return format is 'ID', you get the Canto asset ID (dynamically retrieved)
+// When return format is 'ID', you get the Canto asset ID (extracted from download URL)
 $asset_id = get_field('your_field_name'); // if return format is 'ID'
 
 // When return format is 'URL', you get the preview URL (dynamically retrieved)  
 $asset_url = get_field('your_field_name'); // if return format is 'URL'
 ```
 
-#### Finding assets by filename
+#### Finding assets by filename (Legacy Support)
 
-You can also search for assets directly by their filename:
+For backward compatibility and migration scenarios, you can still search for assets by their filename:
 
 ```php
-// Find an asset by filename
+// Find an asset by filename (for migration or legacy compatibility)
 $asset = acf_canto_find_asset_by_filename('company-logo.png');
 
 if ($asset) {
     echo '<img src="' . $asset['thumbnail'] . '" alt="' . $asset['name'] . '">';
     echo '<p>Found asset: ' . $asset['name'] . '</p>';
+    echo '<p>Download URL: ' . $asset['download_url'] . '</p>';
 }
 
-// Flexible retrieval - works with both asset IDs and filenames
-$asset = acf_canto_get_asset('product-brochure.pdf'); // or use asset ID
+// Flexible retrieval - works with download URLs, asset IDs, and filenames
+$asset = acf_canto_get_asset('product-brochure.pdf'); // or use asset ID or download URL
 if ($asset) {
     echo '<p>Asset found: ' . $asset['filename'] . '</p>';
 }
@@ -183,13 +185,16 @@ if ($asset) {
 
 ### `acf_canto_get_asset($identifier)`
 
-Flexible asset retrieval that works with both asset IDs and filenames.
+Flexible asset retrieval that works with download URLs, asset IDs, and filenames.
 
 ```php
+// Works with download URL (primary method)
+$asset = acf_canto_get_asset('https://domain.canto.com/api_binary/v1/document/abc123/download');
+
 // Works with asset ID
 $asset = acf_canto_get_asset('canto_asset_12345');
 
-// Also works with filename
+// Also works with filename (for backward compatibility)
 $asset = acf_canto_get_asset('product-brochure.pdf');
 
 if ($asset) {
@@ -198,12 +203,12 @@ if ($asset) {
 ```
 
 **Parameters:**
-- `$identifier` (string) - Either a Canto asset ID or filename
+- `$identifier` (string) - A Canto download URL, asset ID, or filename
 
 **Returns:**
 - Array of asset data if found, `false` otherwise
 
-**Note:** The function first attempts to retrieve by asset ID (if the identifier looks like an ID), then falls back to filename search if that fails or if the identifier contains a file extension.
+**Note:** The function first attempts to extract the asset ID from download URLs (most efficient), then tries direct asset ID lookup, and finally falls back to filename search for backward compatibility.
 
 ## Features
 
@@ -212,8 +217,10 @@ if ($asset) {
 - **Asset Preview**: View thumbnails and metadata before selecting
 - **Multiple Asset Types**: Supports images, videos, and documents with appropriate handling
 - **Flexible Return Formats**: Choose between full object, ID only, or URL only
-- **Filename-Based Retrieval**: Find and retrieve assets using their original filename
-- **Migration Support**: Track and manage asset migrations using filename identifiers
+- **Download URL-Based Storage**: Fields now store the asset's download URL as the unique identifier for maximum reliability
+- **Asset ID Extraction**: Automatically extracts asset IDs from download URLs for efficient lookups  
+- **Filename-Based Retrieval**: Find and retrieve assets using their original filename (maintained for backward compatibility)
+- **Migration Support**: Seamlessly handles migration from filename-based to URL-based identifiers
 - **Thumbnail Proxy**: Handles thumbnail display even when direct URLs require authentication
 - **Caching**: Asset data is cached for improved performance
 - **Responsive Interface**: Modal interface that works well on desktop and mobile devices
@@ -271,6 +278,25 @@ For support and bug reports, please create an issue on the plugin's GitHub repos
 This plugin is licensed under the GPL v2 or later.
 
 ## Changelog
+
+### 2.0.0
+- **BREAKING CHANGE: Download URL-Based Storage**
+  - Fields now store the asset's download URL as the unique identifier instead of filename
+  - Asset ID is automatically extracted from download URLs for efficient direct lookups
+  - Provides more reliable asset identification and retrieval
+  - Eliminates filename conflicts and metadata dependency issues
+- **Enhanced Performance and Reliability**  
+  - Direct asset loading by ID extraction instead of search-based lookups
+  - More efficient API usage with targeted asset requests
+  - Improved caching mechanisms using download URL identifiers
+- **Backward Compatibility Maintained**
+  - Existing filename-based helper functions continue to work
+  - Migration support for transitioning from filename-based storage
+  - Legacy field values are automatically handled
+- **Improved Error Handling**
+  - Better fallback mechanisms for missing download URLs
+  - Enhanced debug logging for troubleshooting URL extraction
+  - Robust handling of different Canto API response formats
 
 ### 1.1.0
 - **BREAKING CHANGE: Simplified storage format**

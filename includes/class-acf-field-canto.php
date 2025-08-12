@@ -123,9 +123,22 @@ class ACF_Field_Canto extends acf_field
         $canto_data = null;
         
         if ($value) {
-            // Value is now just the filename
-            $filename = (string) $value;
-            $canto_data = $this->find_asset_by_filename($filename);
+            // Value could be download URL or test format (CANTO_id_suffix)
+            $download_url = (string) $value;
+            
+            // Check if it's our test format
+            if (strpos($download_url, 'CANTO_') === 0) {
+                // Extract asset ID from test format CANTO_123_suffix
+                if (preg_match('/^CANTO_([^_]+)_/', $download_url, $matches)) {
+                    $asset_id = $matches[1];
+                    $canto_data = $this->get_canto_asset_data($asset_id);
+                } else {
+                    $canto_data = false;
+                }
+            } else {
+                // Regular download URL
+                $canto_data = $this->find_asset_by_download_url($download_url);
+            }
         }
         
         ?>
@@ -284,11 +297,22 @@ class ACF_Field_Canto extends acf_field
             return false;
         }
         
-        // Value is now just the filename string
-        $filename = (string) $value;
+        // Value could be download URL or test format (CANTO_id_suffix)
+        $download_url = (string) $value;
         
-        // Find the asset by filename
-        $asset_data = $this->find_asset_by_filename($filename);
+        // Check if it's our test format
+        if (strpos($download_url, 'CANTO_') === 0) {
+            // Extract asset ID from test format CANTO_123_suffix  
+            if (preg_match('/^CANTO_([^_]+)_/', $download_url, $matches)) {
+                $asset_id = $matches[1];
+                $asset_data = $this->get_canto_asset_data($asset_id);
+            } else {
+                $asset_data = false;
+            }
+        } else {
+            // Regular download URL
+            $asset_data = $this->find_asset_by_download_url($download_url);
+        }
         
         if (!$asset_data) {
             return false;
@@ -342,6 +366,103 @@ class ACF_Field_Canto extends acf_field
         return (string) $value;
     }
     
+    /**
+     * Find asset by download URL
+     *
+     * @param string $download_url The download URL to search for
+     * @return array|false Asset data if found, false otherwise
+     */
+    public function find_asset_by_download_url($download_url)
+    {
+        if (empty($download_url)) {
+            return false;
+        }
+        
+        // Try to extract asset ID from download URL
+        // URLs are typically like: https://domain.canto.com/api_binary/v1/TYPE/ASSET_ID/download...
+        if (preg_match('/\/api_binary\/v1\/(?:advance\/)?(?:image|video|document)\/([a-zA-Z0-9]+)/', $download_url, $matches)) {
+            $asset_id = $matches[1];
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('ACF Canto Field: Extracted asset ID from download URL: ' . $asset_id);
+            }
+            
+            // Use the direct asset loading method instead of search
+            return $this->get_canto_asset_data($asset_id);
+        }
+        
+        // Fallback: Try cache first for the full URL
+        $cache_key = 'canto_download_url_' . md5($download_url);
+        $cached_data = get_transient($cache_key);
+        
+        if ($cached_data !== false) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('ACF Canto Field: Using cached data for download URL: ' . $download_url);
+            }
+            return $cached_data;
+        }
+        
+        // Get Canto configuration
+        $domain = get_option('fbc_flight_domain');
+        $app_api = get_option('fbc_app_api') ?: 'canto.com';
+        $token = get_option('fbc_app_token');
+        
+        if (!$domain || !$token) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('ACF Canto Field: Missing domain or token for download URL lookup');
+            }
+            return false;
+        }
+        
+        if (!$domain || !$token) {
+            return false;
+        }
+        
+        // Search for assets using Canto search API
+        $search_url = 'https://' . $domain . '.' . $app_api . '/api/v1/search?limit=100';
+        
+        $headers = array(
+            'Authorization' => 'Bearer ' . $token,
+            'User-Agent' => 'WordPress Plugin',
+            'Content-Type' => 'application/json;charset=utf-8'
+        );
+        
+        $response = wp_remote_get($search_url, array(
+            'headers' => $headers,
+            'timeout' => 30
+        ));
+        
+        if (is_wp_error($response)) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('ACF Canto Field: Download URL search failed: ' . $response->get_error_message());
+            }
+            return false;
+        }
+        
+        $body = wp_remote_retrieve_body($response);
+        $http_code = wp_remote_retrieve_response_code($response);
+        
+        if ($http_code !== 200 || empty($body)) {
+            return false;
+        }
+        
+        $data = json_decode($body, true);
+        if (!$data || !isset($data['results'])) {
+            return false;
+        }
+        
+        // Look for exact download URL match
+        foreach ($data['results'] as $item) {
+            $asset_data = $this->format_asset_data_from_search($item);
+            if ($asset_data && isset($asset_data['download_url']) && $asset_data['download_url'] === $download_url) {
+                // Cache for 1 hour
+                set_transient($cache_key, $asset_data, HOUR_IN_SECONDS);
+                return $asset_data;
+            }
+        }
+        
+        return false;
+    }
+
     /**
      * Search for asset by filename
      *
@@ -509,6 +630,17 @@ class ACF_Field_Canto extends acf_field
             }
         }
         
+        // If no download URL from API, construct one using binary API
+        if (empty($formatted_data['download_url']) && $domain) {
+            if ($scheme === 'image') {
+                $formatted_data['download_url'] = 'https://' . $domain . '.' . $app_api . '/api_binary/v1/advance/image/' . $data['id'] . '/download/directuri?type=jpg&dpi=72';
+            } elseif ($scheme === 'video') {
+                $formatted_data['download_url'] = 'https://' . $domain . '.' . $app_api . '/api_binary/v1/video/' . $data['id'] . '/download';
+            } elseif ($scheme === 'document') {
+                $formatted_data['download_url'] = 'https://' . $domain . '.' . $app_api . '/api_binary/v1/document/' . $data['id'] . '/download';
+            }
+        }
+        
         // Fallback thumbnail
         if (empty($formatted_data['thumbnail']) && $domain) {
             $formatted_data['thumbnail'] = home_url('canto-thumbnail/' . $scheme . '/' . $data['id']);
@@ -533,7 +665,52 @@ class ACF_Field_Canto extends acf_field
             $valid = __('This field is required.', 'acf-canto-field');
         }
         
+        // Debug what value we're getting
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('ACF Canto Field: Validating value: ' . print_r($value, true));
+        }
+        
         return $valid;
+    }
+    
+    /**
+     * Update field value before saving to database
+     *
+     * @param mixed $value The value found in the $_POST array
+     * @param int $post_id The post ID from which the value was loaded
+     * @param array $field The field array holding all the field options
+     * @return mixed
+     */
+    public function update_value($value, $post_id, $field)
+    {
+        // Debug what value we're trying to save
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('ACF Canto Field: Updating value for post ' . $post_id . ': ' . print_r($value, true));
+        }
+        
+        // Make sure we have a string value
+        if (is_string($value) && !empty($value)) {
+            // Check if the value looks like a download URL
+            if (filter_var($value, FILTER_VALIDATE_URL)) {
+                // URLs can be long, make sure they fit in database
+                if (strlen($value) > 2000) {
+                    if (defined('WP_DEBUG') && WP_DEBUG) {
+                        error_log('ACF Canto Field: URL too long (' . strlen($value) . ' chars), truncating: ' . substr($value, 0, 100) . '...');
+                    }
+                    return substr($value, 0, 2000);
+                }
+                return $value;
+            } else {
+                // Not a valid URL, might be legacy filename
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    error_log('ACF Canto Field: Value is not a URL, treating as legacy: ' . $value);
+                }
+                return $value;
+            }
+        }
+        
+        // Return empty string if no valid value
+        return '';
     }
     
     /**

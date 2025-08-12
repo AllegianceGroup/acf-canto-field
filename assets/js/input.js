@@ -290,9 +290,9 @@
                 
                 $item.append($details);
                 
-                // Mark as selected if it's the current value (filename match)
-                var currentFilename = $hiddenInput.val();
-                if (asset.filename === currentFilename || asset.name === currentFilename) {
+                // Mark as selected if it's the current value (download URL match)
+                var currentDownloadUrl = $hiddenInput.val();
+                if (asset.download_url === currentDownloadUrl) {
                     $item.addClass('selected');
                     selectedAsset = asset;
                     $confirmBtn.prop('disabled', false);
@@ -352,9 +352,19 @@
                     if (response.success && response.data) {
                         var fullAssetData = response.data;
                         
-                        // Store just the filename as a string
-                        var filename = fullAssetData.filename || selectedAsset.name;
-                        $hiddenInput.val(filename);
+                        // Store the download URL as the field value
+                        var downloadUrl = fullAssetData.download_url;
+                        console.log('ACF Canto: Full asset data received:', fullAssetData);
+                        console.log('ACF Canto: Download URL extracted:', downloadUrl);
+                        
+                        if (downloadUrl) {
+                            $hiddenInput.val(downloadUrl);
+                            console.log('ACF Canto: Hidden input value set to:', $hiddenInput.val());
+                        } else {
+                            // Fallback: construct download URL if not provided
+                            console.warn('ACF Canto: No download URL found, using fallback');
+                            $hiddenInput.val(''); // Clear the field if no download URL
+                        }
                         
                         // Update preview with full asset data
                         updatePreview(fullAssetData);
@@ -364,16 +374,44 @@
                         
                         // Trigger change event
                         $field.trigger('change');
-                    } else {
-                        // Fallback: use asset name as filename
-                        var fallbackFilename = selectedAsset.name;
-                        // Add extension if missing
-                        if (fallbackFilename.indexOf('.') === -1) {
-                            fallbackFilename += '.jpg'; // default extension
-                        }
                         
-                        $hiddenInput.val(fallbackFilename);
-                        updatePreview(selectedAsset);
+                        console.log('ACF Canto: Asset selected, download URL stored:', downloadUrl);
+                    } else {
+                        // Fallback: use selected asset data if available
+                        if (selectedAsset && selectedAsset.download_url) {
+                            $hiddenInput.val(selectedAsset.download_url);
+                            updatePreview(selectedAsset);
+                            console.log('ACF Canto: Using selectedAsset download URL:', selectedAsset.download_url);
+                        } else {
+                            console.error('ACF Canto: No download URL available, attempting to construct fallback');
+                            // Try to construct download URL as fallback
+                            if (selectedAsset && selectedAsset.id) {
+                                var scheme = selectedAsset.scheme || 'image';
+                                var domain = acf_canto.canto_domain || 'parentsasteachers';
+                                var app_api = 'canto.com'; // Default API domain
+                                var fallbackDownloadUrl = '';
+                                
+                                if (scheme === 'image') {
+                                    fallbackDownloadUrl = 'https://' + domain + '.' + app_api + '/api_binary/v1/advance/image/' + selectedAsset.id + '/download/directuri?type=jpg&dpi=72';
+                                } else if (scheme === 'video') {
+                                    fallbackDownloadUrl = 'https://' + domain + '.' + app_api + '/api_binary/v1/video/' + selectedAsset.id + '/download';
+                                } else if (scheme === 'document') {
+                                    fallbackDownloadUrl = 'https://' + domain + '.' + app_api + '/api_binary/v1/document/' + selectedAsset.id + '/download';
+                                }
+                                
+                                if (fallbackDownloadUrl) {
+                                    $hiddenInput.val(fallbackDownloadUrl);
+                                    console.log('ACF Canto: Using constructed fallback download URL:', fallbackDownloadUrl);
+                                } else {
+                                    $hiddenInput.val(''); // Clear if no fallback possible
+                                    console.error('ACF Canto: Could not construct fallback download URL');
+                                }
+                            } else {
+                                $hiddenInput.val(''); // Clear if no asset data
+                                console.error('ACF Canto: No asset data available for fallback');
+                            }
+                            updatePreview(selectedAsset);
+                        }
                         closeModal();
                         $field.trigger('change');
                     }
