@@ -84,6 +84,8 @@ class ACF_Field_Canto extends acf_field
             'search_placeholder' => __('Search assets...', 'acf-canto-field'),
             'select_asset_button' => __('Select Asset', 'acf-canto-field'),
             'cancel' => __('Cancel', 'acf-canto-field'),
+            'show_details' => __('Show Details', 'acf-canto-field'),
+            'hide_details' => __('Hide Details', 'acf-canto-field'),
         );
         
         // Environment settings

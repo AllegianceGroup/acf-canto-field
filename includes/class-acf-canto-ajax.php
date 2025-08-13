@@ -196,16 +196,57 @@ class ACF_Canto_AJAX_Handler
             }
         }
         
-        // Metadata
+        // Enhanced metadata collection
         if (isset($data['default']) && is_array($data['default'])) {
             $asset['metadata'] = $data['default'];
             
-            // Extract common metadata
-            if (isset($data['default']['Dimensions'])) {
-                $asset['dimensions'] = $data['default']['Dimensions'];
+            // Extract and format common metadata fields
+            $metadata_mapping = array(
+                'Dimensions' => 'dimensions',
+                'Content Type' => 'mime_type', 
+                'File Size' => 'file_size',
+                'Created' => 'created_date',
+                'Modified' => 'modified_date',
+                'Creator' => 'creator',
+                'Copyright' => 'copyright',
+                'Keywords' => 'keywords',
+                'Description' => 'description',
+                'Title' => 'title',
+                'Color Space' => 'color_space',
+                'Bit Depth' => 'bit_depth',
+                'Resolution' => 'resolution',
+                'Camera Make' => 'camera_make',
+                'Camera Model' => 'camera_model',
+                'ISO' => 'iso',
+                'Aperture' => 'aperture',
+                'Shutter Speed' => 'shutter_speed',
+                'Focal Length' => 'focal_length',
+                'GPS Latitude' => 'gps_latitude',
+                'GPS Longitude' => 'gps_longitude',
+                'Duration' => 'duration',
+                'Frame Rate' => 'frame_rate',
+                'Video Codec' => 'video_codec',
+                'Audio Codec' => 'audio_codec',
+                'Page Count' => 'page_count',
+                'Author' => 'author',
+                'Subject' => 'subject'
+            );
+            
+            foreach ($metadata_mapping as $canto_field => $asset_field) {
+                if (isset($data['default'][$canto_field]) && !empty($data['default'][$canto_field])) {
+                    $asset[$asset_field] = $data['default'][$canto_field];
+                }
             }
-            if (isset($data['default']['Content Type'])) {
-                $asset['mime_type'] = $data['default']['Content Type'];
+            
+            // Handle dimensions specially if not already set
+            if (empty($asset['dimensions'])) {
+                $dimension_fields = array('Dimensions', 'Size', 'Image Size', 'Resolution');
+                foreach ($dimension_fields as $field) {
+                    if (isset($data['default'][$field]) && !empty($data['default'][$field])) {
+                        $asset['dimensions'] = $data['default'][$field];
+                        break;
+                    }
+                }
             }
             
             // Extract filename from various possible metadata fields
@@ -216,6 +257,9 @@ class ACF_Canto_AJAX_Handler
                     break;
                 }
             }
+            
+            // Format metadata for display
+            $asset['metadata_display'] = $this->format_metadata_for_display($data['default'], $scheme);
         }
         
         // If no filename found in metadata, try to extract from name or construct from ID
@@ -241,7 +285,76 @@ class ACF_Canto_AJAX_Handler
             $asset['size'] = size_format($data['size']);
         }
         
+        // Add formatted date (try multiple date fields)
+        $asset['formatted_date'] = $this->get_formatted_asset_date($data, $asset['uploaded']);
+        
         return $asset;
+    }
+    
+    /**
+     * Format metadata for display - simplified to only show required fields
+     *
+     * @param array $metadata Raw metadata from Canto
+     * @param string $scheme Asset type (image, video, document)
+     * @return array Organized metadata for display
+     */
+    private function format_metadata_for_display($metadata, $scheme)
+    {
+        // This method is no longer used for modal display
+        // Metadata is now shown directly under asset titles
+        return array('metadata' => array());
+    }
+    
+    /**
+     * Get formatted asset date from various possible sources
+     *
+     * @param array $data Raw asset data
+     * @param string $uploaded_date Fallback uploaded date
+     * @return string Formatted date or empty string
+     */
+    private function get_formatted_asset_date($data, $uploaded_date = '')
+    {
+        // Try to find date from metadata first
+        if (isset($data['default']) && is_array($data['default'])) {
+            $date_fields = array('Modified', 'Last Modified', 'Date Modified', 'Created', 'Date Created', 'lastModified', 'lastUploaded');
+            
+            foreach ($date_fields as $field) {
+                if (isset($data['default'][$field]) && !empty($data['default'][$field])) {
+                    return $this->format_date_to_us($data['default'][$field]);
+                }
+            }
+        }
+        
+        // Try lastUploaded from main data
+        if (isset($data['lastUploaded']) && !empty($data['lastUploaded'])) {
+            return $this->format_date_to_us($data['lastUploaded']);
+        }
+        
+        // Fallback to uploaded date parameter
+        if (!empty($uploaded_date)) {
+            return $this->format_date_to_us($uploaded_date);
+        }
+        
+        return '';
+    }
+    
+    /**
+     * Format date to US format (mm/dd/yyyy)
+     *
+     * @param string $date_string Raw date string from Canto
+     * @return string Formatted date or original string if parsing fails
+     */
+    private function format_date_to_us($date_string)
+    {
+        // Try to parse the date string
+        $timestamp = strtotime($date_string);
+        
+        if ($timestamp !== false) {
+            return date('m/d/Y', $timestamp);
+        }
+        
+        // If parsing fails, return original string
+        return $date_string;
     }
     
     /**
@@ -313,6 +426,8 @@ class ACF_Canto_AJAX_Handler
             wp_send_json_error('Failed to format asset data');
             return;
         }
+        
+        // Asset data formatted successfully
         
         wp_send_json_success($formatted_asset);
     }

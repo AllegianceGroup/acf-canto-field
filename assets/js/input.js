@@ -31,7 +31,7 @@
         var selectedAsset = null;
         var currentAlbumId = null;
         
-        // Add error handling for existing preview images
+        // Add error handling for existing preview images and initialize asset data
         $field.find('.acf-canto-preview-image img').on('error', function() {
             console.log('ACF Canto: Preview image failed to load:', $(this).attr('src'));
             
@@ -49,6 +49,9 @@
             $(this).attr('src', defaultThumb);
         });
         
+        // Initialize existing asset data for metadata functionality
+        initializeExistingAsset();
+        
         // Open modal
         $field.on('click', '.acf-canto-select, .acf-canto-edit', function(e) {
             e.preventDefault();
@@ -60,6 +63,8 @@
             e.preventDefault();
             removeAsset();
         });
+        
+        // Note: Asset info (size and date) now displayed directly under asset titles
         
         // Close modal
         $closeBtn.add($cancelBtn).on('click', function(e) {
@@ -144,6 +149,34 @@
             e.preventDefault();
             confirmSelection();
         });
+        
+        /**
+         * Initialize existing asset data for metadata functionality
+         */
+        function initializeExistingAsset() {
+            var currentValue = $hiddenInput.val();
+            if (currentValue && currentValue.indexOf('http') === 0) {
+                // Extract asset ID from download URL
+                var urlMatch = currentValue.match(/\/(?:image|video|document)\/([a-zA-Z0-9]+)/);
+                if (urlMatch && urlMatch[1]) {
+                    var assetId = urlMatch[1];
+                    var $preview = $field.find('.acf-canto-preview');
+                    if ($preview.length > 0) {
+                        // Create basic asset object from existing preview
+                        var assetData = {
+                            id: assetId,
+                            name: $preview.find('h4').text() || 'Asset',
+                            thumbnail: $preview.find('img').attr('src') || '',
+                            dimensions: $preview.find('p').eq(0).text() || '',
+                            size: $preview.find('p').eq(1).text() || '',
+                            download_url: currentValue
+                        };
+                        $field.data('current-asset', assetData);
+                        console.log('ACF Canto: Initialized existing asset data:', assetData);
+                    }
+                }
+            }
+        }
         
         /**
          * Open the modal and load initial assets
@@ -281,11 +314,12 @@
                 var $details = $('<div class="acf-canto-asset-details">');
                 $details.append('<h4>' + asset.name + '</h4>');
                 
-                if (asset.dimensions) {
-                    $details.append('<p>' + asset.dimensions + '</p>');
-                }
+                // Add file size and date info
                 if (asset.size) {
-                    $details.append('<p>' + asset.size + '</p>');
+                    $details.append('<p class="acf-canto-asset-size">' + asset.size + '</p>');
+                }
+                if (asset.formatted_date) {
+                    $details.append('<p class="acf-canto-asset-date">' + asset.formatted_date + '</p>');
                 }
                 
                 $item.append($details);
@@ -434,6 +468,9 @@
          * Update the field preview
          */
         function updatePreview(asset) {
+            // Store asset data for metadata loading
+            $field.data('current-asset', asset);
+            
             var html = '<div class="acf-canto-preview">';
             html += '<div class="acf-canto-preview-image">';
             
@@ -718,6 +755,131 @@
                     $browseLoading.hide();
                     $browseAssets.html('<div class="acf-canto-error">Error loading album assets: ' + error + '</div>');
                 });
+        }
+        
+        /**
+         * Toggle metadata display in modal
+         */
+        function toggleModalMetadata($button) {
+            var assetId = $button.data('asset-id');
+            var $assetItem = $button.closest('.acf-canto-asset-item');
+            var $metadataContainer = $assetItem.find('.acf-canto-modal-metadata');
+            var $metadataContent = $metadataContainer.find('.acf-canto-modal-metadata-content');
+            var $loading = $metadataContainer.find('.acf-canto-modal-metadata-loading');
+            
+            if ($metadataContainer.is(':visible')) {
+                // Hide metadata
+                $metadataContainer.slideUp();
+                $button.text('Show Details');
+            } else {
+                // Hide other expanded metadata first
+                $modal.find('.acf-canto-modal-metadata:visible').slideUp();
+                $modal.find('.acf-canto-modal-metadata-toggle').text('Show Details');
+                
+                // Show this metadata
+                $metadataContainer.slideDown();
+                $button.text('Hide Details');
+                
+                // Load metadata if not already loaded
+                if ($metadataContent.is(':empty') && assetId) {
+                    loadModalAssetMetadata(assetId, $loading, $metadataContent);
+                }
+            }
+        }
+        
+        /**
+         * Load detailed metadata for a modal asset
+         */
+        function loadModalAssetMetadata(assetId, $loading, $metadataContent) {
+            console.log('ACF Canto: Loading modal metadata for asset ID:', assetId);
+            
+            $loading.show();
+            $metadataContent.empty();
+            
+            var data = {
+                action: 'acf_canto_get_asset',
+                nonce: acf_canto.nonce,
+                asset_id: assetId
+            };
+            
+            $.post(acf_canto.ajax_url, data)
+                .done(function(response) {
+                    console.log('ACF Canto: Metadata AJAX response:', response);
+                    $loading.hide();
+                    
+                    if (response.success && response.data && response.data.metadata_display) {
+                        console.log('ACF Canto: Metadata display data:', response.data.metadata_display);
+                        displayMetadata(response.data.metadata_display, $metadataContent);
+                    } else {
+                        console.log('ACF Canto: No metadata_display found in response');
+                        $metadataContent.html('<p>No detailed metadata available</p>');
+                    }
+                })
+                .fail(function(xhr, status, error) {
+                    console.error('ACF Canto: Modal metadata load failed:', status, error);
+                    $loading.hide();
+                    $metadataContent.html('<p>Error loading metadata: ' + error + '</p>');
+                });
+        }
+        
+        /**
+         * Load detailed metadata for an asset
+         */
+        function loadAssetMetadata(assetId) {
+            var $metadataContent = $field.find('.acf-canto-metadata-content');
+            var $loading = $field.find('.acf-canto-metadata-loading');
+            
+            console.log('ACF Canto: Loading metadata for asset ID:', assetId);
+            
+            $loading.show();
+            $metadataContent.empty();
+            
+            var data = {
+                action: 'acf_canto_get_asset',
+                nonce: acf_canto.nonce,
+                asset_id: assetId
+            };
+            
+            $.post(acf_canto.ajax_url, data)
+                .done(function(response) {
+                    $loading.hide();
+                    
+                    if (response.success && response.data && response.data.metadata_display) {
+                        displayMetadata(response.data.metadata_display, $metadataContent);
+                    } else {
+                        $metadataContent.html('<p>No detailed metadata available</p>');
+                    }
+                })
+                .fail(function(xhr, status, error) {
+                    console.error('ACF Canto: Metadata load failed:', status, error);
+                    $loading.hide();
+                    $metadataContent.html('<p>Error loading metadata: ' + error + '</p>');
+                });
+        }
+        
+        /**
+         * Display formatted metadata
+         */
+        function displayMetadata(metadataDisplay, $container) {
+            var html = '';
+            
+            // Handle simplified metadata structure
+            if (metadataDisplay.metadata && metadataDisplay.metadata.length > 0) {
+                html += '<dl class="acf-canto-metadata-list">';
+                
+                metadataDisplay.metadata.forEach(function(item) {
+                    html += '<dt>' + item.label + ':</dt>';
+                    html += '<dd>' + item.value + '</dd>';
+                });
+                
+                html += '</dl>';
+            }
+            
+            if (html) {
+                $container.html(html);
+            } else {
+                $container.html('<p>No metadata available</p>');
+            }
         }
     }
     
