@@ -2,8 +2,8 @@
 /**
  * Plugin Name: ACF Canto Field
  * Plugin URI: https://github.com/AllegianceGroup/acf-canto-field
- * Description: A custom ACF field that integrates with the Canto plugin to allow users to select assets directly from their Canto library.
- * Version: 2.0.0
+ * Description: A high-performance custom ACF field that integrates with the Canto plugin to allow users to select assets directly from their Canto library. Features advanced caching, comprehensive error handling, and configurable logging.
+ * Version: 2.1.0
  * Author: AGP
  * Author URI: https://teamallegiance.com
  * License: GPL v2 or later
@@ -11,7 +11,7 @@
  * Text Domain: acf-canto-field
  * Domain Path: /languages
  * Requires at least: 5.0
- * Tested up to: 6.4
+ * Tested up to: 6.5
  * Requires PHP: 7.4
  * Network: false
  */
@@ -22,7 +22,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('ACF_CANTO_FIELD_VERSION', '1.1.0');
+define('ACF_CANTO_FIELD_VERSION', '2.1.0');
 define('ACF_CANTO_FIELD_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('ACF_CANTO_FIELD_PLUGIN_PATH', plugin_dir_path(__FILE__));
 
@@ -137,6 +137,11 @@ class ACF_Canto_Field_Plugin
             return;
         }
 
+        // Load helper classes
+        require_once ACF_CANTO_FIELD_PLUGIN_PATH . 'includes/class-acf-canto-logger.php';
+        require_once ACF_CANTO_FIELD_PLUGIN_PATH . 'includes/class-acf-canto-api.php';
+        require_once ACF_CANTO_FIELD_PLUGIN_PATH . 'includes/class-acf-canto-asset-formatter.php';
+
         // Register the field type using the modern ACF method
         if (function_exists('acf_register_field_type')) {
             require_once ACF_CANTO_FIELD_PLUGIN_PATH . 'includes/class-acf-field-canto.php';
@@ -203,11 +208,22 @@ class ACF_Canto_Field_Plugin
      */
     public function deactivate()
     {
-        // Clean up transients
-        global $wpdb;
-        $wpdb->query(
-            "DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_canto_asset_%' OR option_name LIKE '_transient_timeout_canto_asset_%'"
-        );
+        // Clean up transients using improved cache clearing
+        if (class_exists('ACF_Canto_API')) {
+            $logger = new ACF_Canto_Logger();
+            $api = new ACF_Canto_API($logger);
+            $api->clear_cache();
+        } else {
+            // Fallback method
+            global $wpdb;
+            $wpdb->query(
+                "DELETE FROM {$wpdb->options} 
+                 WHERE option_name LIKE '_transient_canto_asset_%' 
+                 OR option_name LIKE '_transient_timeout_canto_asset_%'
+                 OR option_name LIKE '_transient_acf_canto_%' 
+                 OR option_name LIKE '_transient_timeout_acf_canto_%'"
+            );
+        }
         
         // Flush rewrite rules to remove our thumbnail proxy
         flush_rewrite_rules();

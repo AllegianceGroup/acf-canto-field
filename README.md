@@ -212,21 +212,38 @@ if ($asset) {
 
 ## Features
 
+### User Interface & Experience
 - **Search Integration**: Search your Canto library directly from the field interface
 - **Browse Navigation**: Navigate through Canto albums and folders using tree structure
 - **Asset Preview**: View thumbnails and metadata before selecting
 - **Multiple Asset Types**: Supports images, videos, and documents with appropriate handling
-- **Flexible Return Formats**: Choose between full object, ID only, or URL only
-- **Download URL-Based Storage**: Fields now store the asset's download URL as the unique identifier for maximum reliability
-- **Asset ID Extraction**: Automatically extracts asset IDs from download URLs for efficient lookups  
-- **Filename-Based Retrieval**: Find and retrieve assets using their original filename (maintained for backward compatibility)
-- **Migration Support**: Seamlessly handles migration from filename-based to URL-based identifiers
-- **Thumbnail Proxy**: Handles thumbnail display even when direct URLs require authentication
-- **Caching**: Asset data is cached for improved performance
 - **Responsive Interface**: Modal interface that works well on desktop and mobile devices
-- **Error Handling**: Graceful fallbacks for missing assets or API issues
-- **Security**: Proper nonce verification and capability checks
-- **Debug Logging**: Comprehensive logging for troubleshooting when WP_DEBUG is enabled
+
+### Data Management & Storage
+- **Download URL-Based Storage**: Fields store asset download URLs as unique identifiers for maximum reliability
+- **Asset ID Extraction**: Automatically extracts asset IDs from download URLs for efficient lookups
+- **Flexible Return Formats**: Choose between full object, ID only, or URL only
+- **Migration Support**: Seamlessly handles migration from filename-based to URL-based identifiers
+- **Filename-Based Retrieval**: Find and retrieve assets using their original filename (maintained for backward compatibility)
+
+### Performance & Reliability
+- **Advanced Caching System**: Multi-tier caching with optimized cache keys and namespace separation
+- **Efficient API Communication**: Centralized HTTP handling with proper timeouts and connection management
+- **Smart Asset Loading**: Direct asset loading by ID extraction instead of search-based lookups
+- **Optimized Data Processing**: Dedicated formatter classes for consistent and efficient data handling
+
+### Developer Experience
+- **Modular Architecture**: Well-organized codebase with separation of concerns using dedicated helper classes
+- **Comprehensive Error Handling**: Full try-catch blocks, WP_Error handling, and graceful fallbacks throughout
+- **Advanced Logging System**: Configurable debug levels (ERROR, WARNING, INFO, DEBUG) with structured context data
+- **Enhanced Documentation**: Improved PHPDoc blocks with proper type hints and detailed method descriptions
+- **Modern PHP Standards**: Follows WordPress coding standards with clean, maintainable code structure
+
+### Security & Compatibility
+- **Security First**: Proper nonce verification, capability checks, and input sanitization
+- **Thumbnail Proxy**: Handles thumbnail display even when direct URLs require authentication  
+- **Backward Compatibility**: Maintains support for legacy implementations while providing modern features
+- **WordPress Integration**: Seamless integration with WordPress and ACF ecosystem
 
 ## Troubleshooting
 
@@ -267,7 +284,28 @@ define('WP_DEBUG', true);
 define('WP_DEBUG_LOG', true);
 ```
 
-Check your WordPress debug log for any error messages.
+### Advanced Logging Configuration
+
+The plugin now includes a configurable logging system with multiple debug levels:
+
+```php
+// Set logging level (optional - defaults to INFO when WP_DEBUG is enabled)
+define('ACF_CANTO_LOG_LEVEL', 4); // 1=ERROR, 2=WARNING, 3=INFO, 4=DEBUG
+
+// Example log levels:
+define('ACF_CANTO_LOG_LEVEL', 1); // Only critical errors
+define('ACF_CANTO_LOG_LEVEL', 2); // Errors and warnings
+define('ACF_CANTO_LOG_LEVEL', 3); // Errors, warnings, and info messages (default)
+define('ACF_CANTO_LOG_LEVEL', 4); // All messages including detailed debug info
+```
+
+**Log Level Details:**
+- **ERROR (1)**: Critical errors that prevent functionality
+- **WARNING (2)**: Non-critical issues that should be addressed
+- **INFO (3)**: General operational messages and status updates
+- **DEBUG (4)**: Detailed debugging information including API requests/responses
+
+Check your WordPress debug log (`/wp-content/debug.log`) for detailed error messages with context data.
 
 ## Support
 
@@ -279,49 +317,4 @@ This plugin is licensed under the GPL v2 or later.
 
 ## Changelog
 
-### 2.0.0
-- **BREAKING CHANGE: Download URL-Based Storage**
-  - Fields now store the asset's download URL as the unique identifier instead of filename
-  - Asset ID is automatically extracted from download URLs for efficient direct lookups
-  - Provides more reliable asset identification and retrieval
-  - Eliminates filename conflicts and metadata dependency issues
-- **Enhanced Performance and Reliability**  
-  - Direct asset loading by ID extraction instead of search-based lookups
-  - More efficient API usage with targeted asset requests
-  - Improved caching mechanisms using download URL identifiers
-- **Backward Compatibility Maintained**
-  - Existing filename-based helper functions continue to work
-  - Migration support for transitioning from filename-based storage
-  - Legacy field values are automatically handled
-- **Improved Error Handling**
-  - Better fallback mechanisms for missing download URLs
-  - Enhanced debug logging for troubleshooting URL extraction
-  - Robust handling of different Canto API response formats
-
-### 1.1.0
-- **BREAKING CHANGE: Simplified storage format**
-  - Fields now store only the filename as a string (no more JSON or asset IDs)
-  - Asset ID is dynamically resolved from filename when needed
-  - Significantly simplified data structure and retrieval logic
-- **NEW: Enhanced filename-based functionality**
-  - Added `acf_canto_find_asset_by_filename()` helper function
-  - Added `acf_canto_get_asset()` flexible retrieval function
-  - Added AJAX endpoint for filename-based searches
-  - Implemented smart filename extraction from Canto metadata
-- Migration support for transitioning from old storage formats
-- Added comprehensive filename usage examples and documentation
-
-### 1.0.0
-- Initial release
-- Custom ACF field type for Canto asset selection
-- AJAX-powered search functionality
-- Tree navigation for albums and folders
-- Browse view with album/folder structure
-- Multiple return format options (Object, ID, URL)
-- Thumbnail proxy for authenticated asset access
-- Responsive modal interface with tab navigation
-- Support for images, videos, and documents
-- Comprehensive error handling and fallback mechanisms
-- Asset data caching for improved performance
-- Debug logging for troubleshooting
-- Usage examples and documentation
+See [CHANGELOG.md](CHANGELOG.md) for detailed version history and release notes.

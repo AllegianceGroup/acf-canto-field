@@ -29,6 +29,27 @@ class ACF_Field_Canto extends acf_field
      * @var array $env Plugin context such as 'url' and 'version'.
      */
     private $env;
+    
+    /**
+     * Logger instance
+     *
+     * @var ACF_Canto_Logger
+     */
+    private $logger;
+    
+    /**
+     * API helper instance
+     *
+     * @var ACF_Canto_API
+     */
+    private $api;
+    
+    /**
+     * Asset formatter instance
+     *
+     * @var ACF_Canto_Asset_Formatter
+     */
+    private $formatter;
 
     /**
      * Constructor
@@ -71,6 +92,11 @@ class ACF_Field_Canto extends acf_field
             'version' => ACF_CANTO_FIELD_VERSION,
         );
         
+        // Initialize helper classes
+        $this->logger = new ACF_Canto_Logger();
+        $this->api = new ACF_Canto_API($this->logger);
+        $this->formatter = new ACF_Canto_Asset_Formatter($this->logger, $this->api);
+        
         // Call parent constructor
         parent::__construct();
     }
@@ -103,142 +129,226 @@ class ACF_Field_Canto extends acf_field
     public function render_field($field)
     {
         // Check if Canto is available
-        if (!function_exists('Canto') || !get_option('fbc_app_token')) {
-            echo '<div class="acf-canto-error">';
-            echo '<p>' . __('Canto plugin is not configured or not available.', 'acf-canto-field') . '</p>';
-            if (!function_exists('Canto')) {
-                echo '<p><em>Canto plugin not found.</em></p>';
-            }
-            if (!get_option('fbc_app_token')) {
-                echo '<p><em>Canto API token not configured.</em></p>';
-            }
-            echo '</div>';
+        if (!$this->is_canto_available()) {
+            $this->render_canto_error();
             return;
         }
         
         $value = $field['value'];
-        $canto_data = null;
+        $canto_data = $this->get_asset_data_for_field($value);
         
-        // Get Canto data if we have a value
-        $canto_data = null;
         
-        if ($value) {
-            // Value could be download URL or test format (CANTO_id_suffix)
-            $download_url = (string) $value;
-            
-            // Check if it's our test format
-            if (strpos($download_url, 'CANTO_') === 0) {
-                // Extract asset ID from test format CANTO_123_suffix
-                if (preg_match('/^CANTO_([^_]+)_/', $download_url, $matches)) {
-                    $asset_id = $matches[1];
-                    $canto_data = $this->get_canto_asset_data($asset_id);
-                } else {
-                    $canto_data = false;
-                }
-            } else {
-                // Regular download URL
-                $canto_data = $this->find_asset_by_download_url($download_url);
-            }
+        $this->render_field_html($field, $value, $canto_data);
+    }
+    
+    /**
+     * Check if Canto is available and configured
+     *
+     * @return bool
+     */
+    private function is_canto_available()
+    {
+        return function_exists('Canto') && $this->api->is_configured();
+    }
+    
+    /**
+     * Render error message when Canto is not available
+     */
+    private function render_canto_error()
+    {
+        echo '<div class="acf-canto-error">';
+        echo '<p>' . __('Canto plugin is not configured or not available.', 'acf-canto-field') . '</p>';
+        
+        $errors = $this->api->get_config_errors();
+        if (!function_exists('Canto')) {
+            $errors[] = __('Canto plugin not found.', 'acf-canto-field');
         }
         
+        foreach ($errors as $error) {
+            echo '<p><em>' . esc_html($error) . '</em></p>';
+        }
+        
+        echo '</div>';
+    }
+    
+    /**
+     * Get asset data for field value
+     *
+     * @param mixed $value
+     * @return array|false
+     */
+    private function get_asset_data_for_field($value)
+    {
+        if (empty($value)) {
+            return false;
+        }
+        
+        $download_url = (string) $value;
+        
+        // Check if it's test format (CANTO_id_suffix)
+        if (strpos($download_url, 'CANTO_') === 0) {
+            return $this->get_asset_from_test_format($download_url);
+        }
+        
+        // Regular download URL
+        return $this->find_asset_by_download_url($download_url);
+    }
+    
+    /**
+     * Extract asset data from test format
+     *
+     * @param string $test_format
+     * @return array|false
+     */
+    private function get_asset_from_test_format($test_format)
+    {
+        if (preg_match('/^CANTO_([^_]+)_/', $test_format, $matches)) {
+            $asset_id = $matches[1];
+            return $this->get_canto_asset_data($asset_id);
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Render field HTML
+     *
+     * @param array $field
+     * @param mixed $value
+     * @param array|false $canto_data
+     */
+    private function render_field_html($field, $value, $canto_data)
+    {
         ?>
         <div class="acf-canto-field" data-field-name="<?php echo esc_attr($field['name']); ?>">
             <input type="hidden" name="<?php echo esc_attr($field['name']); ?>" value="<?php echo esc_attr($value); ?>" />
             
             <div class="acf-canto-container">
                 <?php if ($canto_data): ?>
-                    <div class="acf-canto-preview">
-                        <div class="acf-canto-preview-image">
-                            <?php if (isset($canto_data['thumbnail'])): ?>
-                                <img src="<?php echo esc_url($canto_data['thumbnail']); ?>" alt="<?php echo esc_attr($canto_data['name']); ?>" />
-                            <?php endif; ?>
-                        </div>
-                        <div class="acf-canto-preview-details">
-                            <h4><?php echo esc_html($canto_data['name']); ?></h4>
-                            <?php if (isset($canto_data['dimensions']) && $canto_data['dimensions']): ?>
-                                <p><?php echo esc_html($canto_data['dimensions']); ?></p>
-                            <?php endif; ?>
-                            <?php if (isset($canto_data['size']) && $canto_data['size']): ?>
-                                <p><?php echo esc_html($canto_data['size']); ?></p>
-                            <?php endif; ?>
-                        </div>
-                        <div class="acf-canto-actions">
-                            <button type="button" class="button acf-canto-edit"><?php echo esc_html($this->l10n['edit']); ?></button>
-                            <button type="button" class="button acf-canto-remove"><?php echo esc_html($this->l10n['remove']); ?></button>
-                        </div>
-                    </div>
+                    <?php $this->render_asset_preview($canto_data); ?>
                 <?php else: ?>
-                    <div class="acf-canto-placeholder">
-                        <button type="button" class="button button-primary acf-canto-select">
-                            <?php echo esc_html($this->l10n['select']); ?>
-                        </button>
-                    </div>
+                    <?php $this->render_asset_placeholder(); ?>
                 <?php endif; ?>
             </div>
             
-            <!-- Modal for asset selection -->
-            <div class="acf-canto-modal" style="display: none;">
-                <div class="acf-canto-modal-content">
-                    <div class="acf-canto-modal-header">
-                        <h3><?php echo esc_html($this->l10n['select']); ?></h3>
-                        <button type="button" class="acf-canto-modal-close">&times;</button>
+            <?php $this->render_asset_modal(); ?>
+        </div>
+        <?php
+    }
+    
+    /**
+     * Render asset preview
+     *
+     * @param array $canto_data
+     */
+    private function render_asset_preview($canto_data)
+    {
+        ?>
+        <div class="acf-canto-preview">
+            <div class="acf-canto-preview-image">
+                <?php if (isset($canto_data['thumbnail'])): ?>
+                    <img src="<?php echo esc_url($canto_data['thumbnail']); ?>" alt="<?php echo esc_attr($canto_data['name']); ?>" />
+                <?php endif; ?>
+            </div>
+            <div class="acf-canto-preview-details">
+                <h4><?php echo esc_html($canto_data['name']); ?></h4>
+                <?php if (isset($canto_data['dimensions']) && $canto_data['dimensions']): ?>
+                    <p><?php echo esc_html($canto_data['dimensions']); ?></p>
+                <?php endif; ?>
+                <?php if (isset($canto_data['size']) && $canto_data['size']): ?>
+                    <p><?php echo esc_html($canto_data['size']); ?></p>
+                <?php endif; ?>
+            </div>
+            <div class="acf-canto-actions">
+                <button type="button" class="button acf-canto-edit"><?php echo esc_html($this->l10n['edit']); ?></button>
+                <button type="button" class="button acf-canto-remove"><?php echo esc_html($this->l10n['remove']); ?></button>
+            </div>
+        </div>
+        <?php
+    }
+    
+    /**
+     * Render asset placeholder
+     */
+    private function render_asset_placeholder()
+    {
+        ?>
+        <div class="acf-canto-placeholder">
+            <button type="button" class="button button-primary acf-canto-select">
+                <?php echo esc_html($this->l10n['select']); ?>
+            </button>
+        </div>
+        <?php
+    }
+    
+    /**
+     * Render asset selection modal
+     */
+    private function render_asset_modal()
+    {
+        ?>
+        <!-- Modal for asset selection -->
+        <div class="acf-canto-modal" style="display: none;">
+            <div class="acf-canto-modal-content">
+                <div class="acf-canto-modal-header">
+                    <h3><?php echo esc_html($this->l10n['select']); ?></h3>
+                    <button type="button" class="acf-canto-modal-close">&times;</button>
+                </div>
+                <div class="acf-canto-modal-body">
+                    <div class="acf-canto-navigation">
+                        <div class="acf-canto-nav-tabs">
+                            <button type="button" class="acf-canto-nav-tab active" data-view="search"><?php _e('Search', 'acf-canto-field'); ?></button>
+                            <button type="button" class="acf-canto-nav-tab" data-view="browse"><?php _e('Browse', 'acf-canto-field'); ?></button>
+                        </div>
                     </div>
-                    <div class="acf-canto-modal-body">
-                        <div class="acf-canto-navigation">
-                            <div class="acf-canto-nav-tabs">
-                                <button type="button" class="acf-canto-nav-tab active" data-view="search"><?php _e('Search', 'acf-canto-field'); ?></button>
-                                <button type="button" class="acf-canto-nav-tab" data-view="browse"><?php _e('Browse', 'acf-canto-field'); ?></button>
+                    
+                    <div class="acf-canto-content">
+                        <!-- Search View -->
+                        <div class="acf-canto-view acf-canto-search-view active">
+                            <div class="acf-canto-search">
+                                <input type="text" class="acf-canto-search-input" placeholder="<?php echo esc_attr($this->l10n['search_placeholder']); ?>" />
+                                <button type="button" class="button acf-canto-search-btn"><?php _e('Search', 'acf-canto-field'); ?></button>
+                            </div>
+                            <div class="acf-canto-results">
+                                <div class="acf-canto-loading" style="display: none;">
+                                    <?php echo esc_html($this->l10n['loading']); ?>
+                                </div>
+                                <div class="acf-canto-assets-grid"></div>
                             </div>
                         </div>
                         
-                        <div class="acf-canto-content">
-                            <!-- Search View -->
-                            <div class="acf-canto-view acf-canto-search-view active">
-                                <div class="acf-canto-search">
-                                    <input type="text" class="acf-canto-search-input" placeholder="<?php echo esc_attr($this->l10n['search_placeholder']); ?>" />
-                                    <button type="button" class="button acf-canto-search-btn"><?php _e('Search', 'acf-canto-field'); ?></button>
-                                </div>
-                                <div class="acf-canto-results">
-                                    <div class="acf-canto-loading" style="display: none;">
+                        <!-- Browse View -->
+                        <div class="acf-canto-view acf-canto-browse-view">
+                            <div class="acf-canto-browse-layout">
+                                <div class="acf-canto-tree-sidebar">
+                                    <div class="acf-canto-tree-header">
+                                        <h4><?php _e('Albums & Folders', 'acf-canto-field'); ?></h4>
+                                        <button type="button" class="button-link acf-canto-tree-refresh" title="<?php _e('Refresh', 'acf-canto-field'); ?>">↻</button>
+                                    </div>
+                                    <div class="acf-canto-tree-loading" style="display: none;">
                                         <?php echo esc_html($this->l10n['loading']); ?>
                                     </div>
-                                    <div class="acf-canto-assets-grid"></div>
+                                    <div class="acf-canto-tree-container">
+                                        <ul class="acf-canto-tree-list"></ul>
+                                    </div>
                                 </div>
-                            </div>
-                            
-                            <!-- Browse View -->
-                            <div class="acf-canto-view acf-canto-browse-view">
-                                <div class="acf-canto-browse-layout">
-                                    <div class="acf-canto-tree-sidebar">
-                                        <div class="acf-canto-tree-header">
-                                            <h4><?php _e('Albums & Folders', 'acf-canto-field'); ?></h4>
-                                            <button type="button" class="button-link acf-canto-tree-refresh" title="<?php _e('Refresh', 'acf-canto-field'); ?>">↻</button>
-                                        </div>
-                                        <div class="acf-canto-tree-loading" style="display: none;">
-                                            <?php echo esc_html($this->l10n['loading']); ?>
-                                        </div>
-                                        <div class="acf-canto-tree-container">
-                                            <ul class="acf-canto-tree-list"></ul>
-                                        </div>
+                                <div class="acf-canto-browse-content">
+                                    <div class="acf-canto-browse-header">
+                                        <h4 class="acf-canto-current-path"><?php _e('All Assets', 'acf-canto-field'); ?></h4>
+                                        <button type="button" class="button-link acf-canto-browse-refresh" title="<?php _e('Refresh', 'acf-canto-field'); ?>">↻</button>
                                     </div>
-                                    <div class="acf-canto-browse-content">
-                                        <div class="acf-canto-browse-header">
-                                            <h4 class="acf-canto-current-path"><?php _e('All Assets', 'acf-canto-field'); ?></h4>
-                                            <button type="button" class="button-link acf-canto-browse-refresh" title="<?php _e('Refresh', 'acf-canto-field'); ?>">↻</button>
-                                        </div>
-                                        <div class="acf-canto-browse-loading" style="display: none;">
-                                            <?php echo esc_html($this->l10n['loading']); ?>
-                                        </div>
-                                        <div class="acf-canto-browse-assets"></div>
+                                    <div class="acf-canto-browse-loading" style="display: none;">
+                                        <?php echo esc_html($this->l10n['loading']); ?>
                                     </div>
+                                    <div class="acf-canto-browse-assets"></div>
                                 </div>
                             </div>
                         </div>
                     </div>
-                    <div class="acf-canto-modal-footer">
-                        <button type="button" class="button button-primary acf-canto-confirm-selection" disabled><?php echo esc_html($this->l10n['select_asset_button']); ?></button>
-                        <button type="button" class="button acf-canto-cancel"><?php echo esc_html($this->l10n['cancel']); ?></button>
-                    </div>
+                </div>
+                <div class="acf-canto-modal-footer">
+                    <button type="button" class="button button-primary acf-canto-confirm-selection" disabled><?php echo esc_html($this->l10n['select_asset_button']); ?></button>
+                    <button type="button" class="button acf-canto-cancel"><?php echo esc_html($this->l10n['cancel']); ?></button>
                 </div>
             </div>
         </div>
@@ -292,58 +402,20 @@ class ACF_Field_Canto extends acf_field
      */
     public function format_value($value, $post_id, $field)
     {
-        // Return false if no value
         if (empty($value)) {
             return false;
         }
         
-        // Value could be download URL or test format (CANTO_id_suffix)
-        $download_url = (string) $value;
-        
-        // Check if it's our test format
-        if (strpos($download_url, 'CANTO_') === 0) {
-            // Extract asset ID from test format CANTO_123_suffix  
-            if (preg_match('/^CANTO_([^_]+)_/', $download_url, $matches)) {
-                $asset_id = $matches[1];
-                $asset_data = $this->get_canto_asset_data($asset_id);
-            } else {
-                $asset_data = false;
-            }
-        } else {
-            // Regular download URL
-            $asset_data = $this->find_asset_by_download_url($download_url);
-        }
+        $asset_data = $this->get_asset_data_for_field($value);
         
         if (!$asset_data) {
+            $this->logger->warning('Asset data not found for field value', array('value' => $value, 'post_id' => $post_id));
             return false;
         }
         
-        return $this->prepare_return_value($asset_data, $field);
+        return $this->formatter->prepare_return_value($asset_data, $field);
     }
     
-    /**
-     * Prepare return value based on field return format
-     *
-     * @param array|false $asset_data The asset data
-     * @param array $field The field configuration
-     * @return mixed
-     */
-    private function prepare_return_value($asset_data, $field)
-    {
-        if (!$asset_data) {
-            return false;
-        }
-        
-        // Check return format
-        if ($field['return_format'] == 'id') {
-            return $asset_data['id'];
-        } elseif ($field['return_format'] == 'url') {
-            return isset($asset_data['url']) ? $asset_data['url'] : false;
-        } else {
-            // Return full object
-            return $asset_data;
-        }
-    }
     
     /**
      * Parse stored value - Legacy support for migration from old formats
@@ -683,34 +755,54 @@ class ACF_Field_Canto extends acf_field
      */
     public function update_value($value, $post_id, $field)
     {
-        // Debug what value we're trying to save
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('ACF Canto Field: Updating value for post ' . $post_id . ': ' . print_r($value, true));
+        $this->logger->debug('Updating field value', array(
+            'value' => $value,
+            'post_id' => $post_id,
+            'field_name' => isset($field['name']) ? $field['name'] : 'unknown'
+        ));
+        
+        if (empty($value) || !is_string($value)) {
+            return '';
         }
         
-        // Make sure we have a string value
-        if (is_string($value) && !empty($value)) {
-            // Check if the value looks like a download URL
-            if (filter_var($value, FILTER_VALIDATE_URL)) {
-                // URLs can be long, make sure they fit in database
-                if (strlen($value) > 2000) {
-                    if (defined('WP_DEBUG') && WP_DEBUG) {
-                        error_log('ACF Canto Field: URL too long (' . strlen($value) . ' chars), truncating: ' . substr($value, 0, 100) . '...');
-                    }
-                    return substr($value, 0, 2000);
-                }
-                return $value;
-            } else {
-                // Not a valid URL, might be legacy filename
-                if (defined('WP_DEBUG') && WP_DEBUG) {
-                    error_log('ACF Canto Field: Value is not a URL, treating as legacy: ' . $value);
-                }
-                return $value;
-            }
+        $value = trim($value);
+        
+        // Validate URL format
+        if (filter_var($value, FILTER_VALIDATE_URL)) {
+            return $this->sanitize_url_value($value);
         }
         
-        // Return empty string if no valid value
+        // Handle legacy or test format values
+        if (!empty($value)) {
+            $this->logger->info('Saving non-URL value (legacy or test format)', array('value' => $value));
+            return $value;
+        }
+        
         return '';
+    }
+    
+    /**
+     * Sanitize URL value for database storage
+     *
+     * @param string $url
+     * @return string
+     */
+    private function sanitize_url_value($url)
+    {
+        // Check URL length for database compatibility
+        $max_length = 2000; // Safe limit for most database configurations
+        
+        if (strlen($url) > $max_length) {
+            $this->logger->warning('URL too long for database storage', array(
+                'length' => strlen($url),
+                'max_length' => $max_length,
+                'url_preview' => substr($url, 0, 100) . '...'
+            ));
+            
+            return substr($url, 0, $max_length);
+        }
+        
+        return $url;
     }
     
     /**
@@ -719,206 +811,100 @@ class ACF_Field_Canto extends acf_field
      * @param string $asset_id The Canto asset ID
      * @return array|false
      */
-    private function get_canto_asset_data($asset_id)
+    public function get_canto_asset_data($asset_id)
     {
         if (empty($asset_id)) {
+            $this->logger->warning('Empty asset ID provided');
             return false;
         }
         
-        // Debug logging
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('ACF Canto Field: Loading asset data for ID: ' . $asset_id);
-        }
+        $this->logger->debug('Loading asset data', array('asset_id' => $asset_id));
         
-        // Try to get cached data first
-        $cache_key = 'canto_asset_' . $asset_id;
-        $cached_data = get_transient($cache_key);
+        $result = $this->api->get_asset($asset_id);
         
-        if ($cached_data !== false) {
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('ACF Canto Field: Using cached data for: ' . $asset_id);
-            }
-            return $cached_data;
-        }
-        
-        // Get Canto configuration
-        $domain = get_option('fbc_flight_domain');
-        $app_api = get_option('fbc_app_api') ?: 'canto.com';
-        $token = get_option('fbc_app_token');
-        
-        if (!$domain || !$token) {
+        if (is_wp_error($result)) {
+            $this->logger->error('Failed to get asset data: ' . $result->get_error_message(), array('asset_id' => $asset_id));
             return false;
         }
         
-        // Try different API endpoints that might exist
-        $base_url = 'https://' . $domain . '.' . $app_api . '/api/v1/';
-        $endpoints = array('image', 'video', 'document');
-        $data = false;
-        
-        $headers = array(
-            'Authorization' => 'Bearer ' . $token,
-            'User-Agent' => 'WordPress Plugin',
-            'Content-Type' => 'application/json;charset=utf-8'
-        );
-        
-        foreach ($endpoints as $endpoint) {
-            $asset_url = $base_url . $endpoint . '/' . $asset_id;
-            $response = wp_remote_get($asset_url, array(
-                'headers' => $headers,
-                'timeout' => 30
-            ));
-            
-            if (!is_wp_error($response)) {
-                $body = wp_remote_retrieve_body($response);
-                $http_code = wp_remote_retrieve_response_code($response);
-                
-                if ($http_code === 200 && !empty($body)) {
-                    $json_data = json_decode($body, true);
-                    if ($json_data && !isset($json_data['error'])) {
-                        $data = $json_data;
-                        break;
-                    }
-                }
-            }
+        return $this->formatter->format_from_api($result, $asset_id);
+    }
+    
+    /**
+     * Extract asset ID from download URL
+     *
+     * @param string $download_url
+     * @return string|false Asset ID or false if not found
+     */
+    private function extract_asset_id_from_url($download_url)
+    {
+        // URLs are typically like: https://domain.canto.com/api_binary/v1/TYPE/ASSET_ID/download...
+        if (preg_match('/\/api_binary\/v1\/(?:advance\/)?(?:image|video|document)\/([a-zA-Z0-9]+)/', $download_url, $matches)) {
+            return $matches[1];
         }
         
-        if (!$data) {
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('ACF Canto Field: No asset data found for ID: ' . $asset_id);
-            }
+        return false;
+    }
+    
+    /**
+     * Search for asset by download URL using API
+     *
+     * @param string $download_url
+     * @return array|false
+     */
+    private function search_asset_by_download_url($download_url)
+    {
+        $result = $this->api->search_assets('', array('limit' => 100));
+        
+        if (is_wp_error($result)) {
+            $this->logger->error('Download URL search failed: ' . $result->get_error_message(), array('url' => $download_url));
             return false;
         }
         
-        // Debug logging
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('ACF Canto Field: Asset data loaded for: ' . $asset_id . ', thumbnail will be: ' . (isset($data['url']['directUrlPreview']) ? $data['url']['directUrlPreview'] : 'fallback'));
+        if (!isset($result['results']) || empty($result['results'])) {
+            return false;
         }
         
-        // Determine asset type
-        $scheme = 'image'; // default
-        if (isset($data['scheme'])) {
-            $scheme = $data['scheme'];
-        } elseif (isset($data['url']['preview'])) {
-            // Try to determine from URL structure
-            if (strpos($data['url']['preview'], '/video/') !== false) {
-                $scheme = 'video';
-            } elseif (strpos($data['url']['preview'], '/document/') !== false) {
-                $scheme = 'document';
+        // Look for exact download URL match
+        foreach ($result['results'] as $item) {
+            $asset_data = $this->formatter->format_from_search($item);
+            if ($asset_data && isset($asset_data['download_url']) && $asset_data['download_url'] === $download_url) {
+                return $asset_data;
             }
         }
         
-        // Format the data
-        $formatted_data = array(
-            'id' => $asset_id,
-            'scheme' => $scheme,
-            'name' => isset($data['name']) ? $data['name'] : 'Untitled',
-            'filename' => '', // Will be extracted from metadata or name
-            'url' => '',
-            'thumbnail' => '',
-            'download_url' => '',
-            'dimensions' => '',
-            'mime_type' => '',
-            'size' => '',
-            'uploaded' => isset($data['lastUploaded']) ? $data['lastUploaded'] : '',
-            'metadata' => isset($data['default']) ? $data['default'] : array(),
-        );
-        
-        // URLs from API response (if available)
-        if (isset($data['url'])) {
-            if (isset($data['url']['preview'])) {
-                $formatted_data['url'] = $data['url']['preview'];
-            }
-            if (isset($data['url']['download'])) {
-                $formatted_data['download_url'] = $data['url']['download'];
-            }
-            // Check for directUrlPreview which doesn't need authentication
-            if (isset($data['url']['directUrlPreview'])) {
-                $formatted_data['thumbnail'] = $data['url']['directUrlPreview'];
+        return false;
+    }
+    
+    /**
+     * Find best filename match from search results
+     *
+     * @param array $results Search results
+     * @param string $filename Target filename
+     * @return array|false
+     */
+    private function find_best_filename_match($results, $filename)
+    {
+        // First pass: exact filename match
+        foreach ($results as $item) {
+            $asset_data = $this->formatter->format_from_search($item);
+            if ($asset_data && $asset_data['filename'] === $filename) {
+                $this->logger->debug('Found exact filename match', array('filename' => $filename, 'asset_id' => $asset_data['id']));
+                return $asset_data;
             }
         }
         
-        // Fallback: Build proper thumbnail URL using our proxy endpoint if no direct URL
-        if (empty($formatted_data['thumbnail']) && $domain) {
-            $formatted_data['thumbnail'] = home_url('canto-thumbnail/' . $scheme . '/' . $asset_id);
-        }
-        
-        // Final fallback: Use default thumbnail based on asset type
-        if (empty($formatted_data['thumbnail'])) {
-            $plugin_url = plugin_dir_url(dirname(__FILE__));
-            switch ($scheme) {
-                case 'video':
-                    $formatted_data['thumbnail'] = $plugin_url . 'assets/images/default-video.svg';
-                    break;
-                case 'document':
-                    $formatted_data['thumbnail'] = $plugin_url . 'assets/images/default-document.svg';
-                    break;
-                case 'image':
-                default:
-                    $formatted_data['thumbnail'] = $plugin_url . 'assets/images/default-image.svg';
-                    break;
+        // Second pass: name field match (handles assets without explicit filename metadata)
+        foreach ($results as $item) {
+            $asset_data = $this->formatter->format_from_search($item);
+            if ($asset_data && $asset_data['name'] === $filename) {
+                $this->logger->debug('Found name field match', array('filename' => $filename, 'asset_id' => $asset_data['id']));
+                return $asset_data;
             }
         }
         
-        // If no download URL from API, construct one using binary API
-        if (empty($formatted_data['download_url']) && $domain) {
-            if ($scheme === 'image') {
-                $formatted_data['download_url'] = 'https://' . $domain . '.' . $app_api . '/api_binary/v1/advance/image/' . $asset_id . '/download/directuri?type=jpg&dpi=72';
-            } elseif ($scheme === 'video') {
-                $formatted_data['download_url'] = 'https://' . $domain . '.' . $app_api . '/api_binary/v1/video/' . $asset_id . '/download';
-            } elseif ($scheme === 'document') {
-                $formatted_data['download_url'] = 'https://' . $domain . '.' . $app_api . '/api_binary/v1/document/' . $asset_id . '/download';
-            }
-        }
-        
-        // Extract additional metadata if available
-        if (isset($data['default']) && is_array($data['default'])) {
-            $formatted_data['metadata'] = $data['default'];
-            
-            // Extract common metadata
-            if (isset($data['default']['Dimensions'])) {
-                $formatted_data['dimensions'] = $data['default']['Dimensions'];
-            }
-            if (isset($data['default']['Content Type'])) {
-                $formatted_data['mime_type'] = $data['default']['Content Type'];
-            }
-            
-            // Extract filename from various possible metadata fields
-            $filename_fields = array('Filename', 'File Name', 'Original Filename', 'filename', 'file_name');
-            foreach ($filename_fields as $field) {
-                if (isset($data['default'][$field]) && !empty($data['default'][$field])) {
-                    $formatted_data['filename'] = $data['default'][$field];
-                    break;
-                }
-            }
-        }
-        
-        // If no filename found in metadata, try to extract from name or construct from ID
-        if (empty($formatted_data['filename'])) {
-            // If name contains file extension, use it as filename
-            if (preg_match('/\.[a-zA-Z0-9]{2,5}$/', $formatted_data['name'])) {
-                $formatted_data['filename'] = $formatted_data['name'];
-            } else {
-                // Construct filename using asset name and scheme-based extension
-                $extension_map = array(
-                    'image' => 'jpg',
-                    'video' => 'mp4', 
-                    'document' => 'pdf'
-                );
-                $extension = isset($extension_map[$scheme]) ? $extension_map[$scheme] : 'bin';
-                $safe_name = preg_replace('/[^a-zA-Z0-9_-]/', '_', $formatted_data['name']);
-                $formatted_data['filename'] = $safe_name . '.' . $extension;
-            }
-        }
-        
-        // File size
-        if (isset($data['size'])) {
-            $formatted_data['size'] = size_format($data['size']);
-        }
-        
-        // Cache for 1 hour
-        set_transient($cache_key, $formatted_data, HOUR_IN_SECONDS);
-        
-        return $formatted_data;
+        $this->logger->info('No filename match found in search results', array('filename' => $filename, 'results_count' => count($results)));
+        return false;
     }
 }
 

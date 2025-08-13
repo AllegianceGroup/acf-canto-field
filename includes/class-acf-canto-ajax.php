@@ -13,14 +13,37 @@ if (!defined('ABSPATH')) {
 class ACF_Canto_AJAX_Handler
 {
     /**
+     * Logger instance
+     *
+     * @var ACF_Canto_Logger
+     */
+    private $logger;
+    
+    /**
+     * API helper instance
+     *
+     * @var ACF_Canto_API
+     */
+    private $api;
+    
+    /**
+     * Asset formatter instance
+     *
+     * @var ACF_Canto_Asset_Formatter
+     */
+    private $formatter;
+    
+    /**
      * Constructor
      */
     public function __construct()
     {
-        // Debug logging
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('ACF Canto: AJAX Handler initialized');
-        }
+        // Initialize helper classes
+        $this->logger = new ACF_Canto_Logger();
+        $this->api = new ACF_Canto_API($this->logger);
+        $this->formatter = new ACF_Canto_Asset_Formatter($this->logger, $this->api);
+        
+        $this->logger->debug('AJAX Handler initialized');
         
         // AJAX actions for logged in users
         add_action('wp_ajax_acf_canto_search', array($this, 'search_assets'));
@@ -35,272 +58,59 @@ class ACF_Canto_AJAX_Handler
      */
     public function search_assets()
     {
-        // Debug logging
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('ACF Canto: search_assets called');
-        }
+        $this->logger->debug('search_assets called');
 
-        // Verify nonce
-        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'acf_canto_nonce')) {
-            wp_die('Security check failed');
-        }
-        
-        // Check if user has permission
-        if (!current_user_can('edit_posts')) {
-            wp_die('Insufficient permissions');
-        }
-        
-        // Check if Canto is available
-        if (!function_exists('Canto')) {
-            wp_send_json_error('Canto plugin not found');
+        // Security and permission checks
+        if (!$this->verify_ajax_request()) {
             return;
         }
         
-        if (!get_option('fbc_app_token')) {
-            wp_send_json_error('Canto API token not configured');
+        // Check if API is configured
+        if (!$this->api->is_configured()) {
+            $errors = $this->api->get_config_errors();
+            wp_send_json_error(implode(', ', $errors));
             return;
         }
         
         $query = isset($_POST['query']) ? sanitize_text_field($_POST['query']) : '';
         $selected_id = isset($_POST['selected_id']) ? sanitize_text_field($_POST['selected_id']) : '';
         
-        // Debug logging
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('ACF Canto: Search query: ' . $query);
-            error_log('ACF Canto: Selected ID: ' . $selected_id);
-        }
-        
-        // Get Canto configuration
-        $domain = get_option('fbc_flight_domain');
-        $app_api = get_option('fbc_app_api') ?: 'canto.com';
-        
-        if (!$domain) {
-            wp_send_json_error('Canto domain not configured');
-            return;
-        }
-        
-        // Build search URL using same structure as Canto plugin
-        $start = 0;
-        $limit = 50;
-        
-        // File types as used in the Canto plugin
-        $fileType4Images = "GIF|JPG|PNG|SVG|WEBP|";
-        $fileType4Documents = "DOC|KEY|ODT|PDF|PPT|XLS|";
-        $fileType4Audio = "MPEG|M4A|OGG|WAV|";
-        $fileType4Video = "AVI|MP4|MOV|OGG|VTT|WMV|3GP";
-        $fileType = $fileType4Images . $fileType4Documents . $fileType4Audio . $fileType4Video;
-        
-        if (!empty($query)) {
-            $search_url = 'https://' . $domain . '.' . $app_api . '/api/v1/search?keyword=' . urlencode($query) . '&fileType=' . urlencode($fileType) . '&operator=and&limit=' . $limit . '&start=' . $start;
-        } else {
-            $search_url = 'https://' . $domain . '.' . $app_api . '/api/v1/search?keyword=&fileType=' . urlencode($fileType) . '&limit=' . $limit . '&start=' . $start;
-        }
-        
-        // Debug logging
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('ACF Canto: API URL: ' . $search_url);
-        }
-        
-        // Make API call using wp_remote_get like the Canto plugin
-        $headers = array(
-            'Authorization' => 'Bearer ' . get_option('fbc_app_token'),
-            'User-Agent' => 'WordPress Plugin',
-            'Content-Type' => 'application/json;charset=utf-8'
-        );
-        
-        $response = wp_remote_get($search_url, array(
-            'headers' => $headers,
-            'timeout' => 30
+        $this->logger->debug('AJAX search request', array(
+            'query' => $query,
+            'selected_id' => $selected_id
         ));
         
-        // Debug logging for API response
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('ACF Canto: API Response Code: ' . wp_remote_retrieve_response_code($response));
-            if (is_wp_error($response)) {
-                error_log('ACF Canto: API Error: ' . $response->get_error_message());
-            }
-        }
+        $search_options = array(
+            'limit' => 50,
+            'start' => 0
+        );
         
-        if (is_wp_error($response)) {
-            wp_send_json_error('API request failed: ' . $response->get_error_message());
+        $result = $this->api->search_assets($query, $search_options);
+        
+        if (is_wp_error($result)) {
+            $this->logger->error('Search request failed: ' . $result->get_error_message());
+            wp_send_json_error($result->get_error_message());
             return;
-        }
-        
-        $body = wp_remote_retrieve_body($response);
-        $http_code = wp_remote_retrieve_response_code($response);
-        
-        // Debug: Log raw API response
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('ACF Canto: Raw API Response: ' . substr($body, 0, 500));
-        }
-        
-        if (empty($body)) {
-            wp_send_json_error('No response from Canto API');
-            return;
-        }
-        
-        if ($http_code !== 200) {
-            wp_send_json_error('API request failed with HTTP code: ' . $http_code . '. Response: ' . substr($body, 0, 200));
-            return;
-        }
-        
-        $data = json_decode($body, true);
-        
-        // Debug: Log data structure
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('ACF Canto: Decoded data type: ' . gettype($data));
-            if (is_array($data)) {
-                error_log('ACF Canto: Data keys: ' . implode(', ', array_keys($data)));
-                if (isset($data['results'])) {
-                    error_log('ACF Canto: Results count: ' . count($data['results']));
-                }
-            } else {
-                error_log('ACF Canto: Raw data: ' . print_r($data, true));
-            }
-        }
-        
-        if (!$data) {
-            wp_send_json_error('Invalid JSON response from Canto API');
-            return;
-        }
-        
-        if (isset($data['error'])) {
-            wp_send_json_error('Error from Canto API: ' . $data['error']);
-            return;
-        }
-        
-        // Debug: Log first result structure
-        if (defined('WP_DEBUG') && WP_DEBUG && isset($data['results']) && count($data['results']) > 0) {
-            error_log('ACF Canto: First result structure: ' . print_r($data['results'][0], true));
         }
         
         $assets = array();
-        
-        // Process results
-        if (isset($data['results']) && is_array($data['results'])) {
-            foreach ($data['results'] as $item) {
-                $asset = $this->format_asset_data($item);
-                if ($asset) {
-                    $assets[] = $asset;
+        if (isset($result['results']) && is_array($result['results'])) {
+            foreach ($result['results'] as $item) {
+                $asset_data = $this->format_asset_data($item);
+                if ($asset_data) {
+                    $assets[] = $asset_data;
                 }
             }
         }
         
-        // If we have a selected_id and it's not in results, try to fetch it separately
-        if (!empty($selected_id) && !$this->asset_in_results($selected_id, $assets)) {
-            $selected_asset = $this->get_single_asset($selected_id);
-            if ($selected_asset) {
-                array_unshift($assets, $selected_asset);
-            }
-        }
-          // Debug logging
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('ACF Canto: Found ' . count($assets) . ' assets');
-            if (count($assets) > 0) {
-                error_log('ACF Canto: First asset thumbnail URL: ' . $assets[0]['thumbnail']);
-            }
-        }
-
         wp_send_json_success($assets);
     }
     
     /**
-     * Get single Canto asset
-     */
-    public function get_asset()
-    {
-        // Verify nonce
-        if (!wp_verify_nonce($_POST['nonce'], 'acf_canto_nonce')) {
-            wp_die('Security check failed');
-        }
-        
-        // Check if user has permission
-        if (!current_user_can('edit_posts')) {
-            wp_die('Insufficient permissions');
-        }
-        
-        $asset_id = sanitize_text_field($_POST['asset_id']);
-        
-        if (empty($asset_id)) {
-            wp_send_json_error('Asset ID required');
-            return;
-        }
-        
-        $asset = $this->get_single_asset($asset_id);
-        
-        if ($asset) {
-            wp_send_json_success($asset);
-        } else {
-            wp_send_json_error('Asset not found');
-        }
-    }
-    
-    /**
-     * Get single asset data from Canto
+     * Format asset data for frontend (compatible with original format)
      *
-     * @param string $asset_id The asset ID
-     * @return array|false
-     */
-    private function get_single_asset($asset_id)
-    {
-        if (!get_option('fbc_app_token') || !get_option('fbc_flight_domain')) {
-            return false;
-        }
-        
-        // Try cache first
-        $cache_key = 'canto_asset_' . $asset_id;
-        $cached_data = get_transient($cache_key);
-        
-        if ($cached_data !== false) {
-            return $cached_data;
-        }
-        
-        $domain = get_option('fbc_flight_domain');
-        $app_api = get_option('fbc_app_api') ?: 'canto.com';
-        
-        // Try different API endpoints that might exist
-        $base_url = 'https://' . $domain . '.' . $app_api . '/api/v1/';
-        $endpoints = array('image', 'video', 'document');
-        
-        $headers = array(
-            'Authorization' => 'Bearer ' . get_option('fbc_app_token'),
-            'User-Agent' => 'WordPress Plugin',
-            'Content-Type' => 'application/json;charset=utf-8'
-        );
-        
-        foreach ($endpoints as $endpoint) {
-            $asset_url = $base_url . $endpoint . '/' . $asset_id;
-            $response = wp_remote_get($asset_url, array(
-                'headers' => $headers,
-                'timeout' => 30
-            ));
-            
-            if (!is_wp_error($response)) {
-                $body = wp_remote_retrieve_body($response);
-                $http_code = wp_remote_retrieve_response_code($response);
-                
-                if ($http_code === 200 && !empty($body)) {
-                    $data = json_decode($body, true);
-                    if ($data && !isset($data['error'])) {
-                        $asset = $this->format_asset_data($data);
-                        if ($asset) {
-                            // Cache for 1 hour
-                            set_transient($cache_key, $asset, HOUR_IN_SECONDS);
-                            return $asset;
-                        }
-                    }
-                }
-            }
-        }
-        
-        return false;
-    }
-    
-    /**
-     * Format asset data for consistent output
-     *
-     * @param array $data Raw asset data from Canto API
-     * @return array|false
+     * @param array $data Raw asset data from API
+     * @return array|false Formatted asset data
      */
     private function format_asset_data($data)
     {
@@ -313,7 +123,6 @@ class ACF_Canto_AJAX_Handler
         if (isset($data['scheme'])) {
             $scheme = $data['scheme'];
         } elseif (isset($data['url']['preview'])) {
-            // Try to determine from URL structure
             if (strpos($data['url']['preview'], '/video/') !== false) {
                 $scheme = 'video';
             } elseif (strpos($data['url']['preview'], '/document/') !== false) {
@@ -321,20 +130,19 @@ class ACF_Canto_AJAX_Handler
             }
         }
         
-        // Build asset object
         $asset = array(
             'id' => $data['id'],
             'scheme' => $scheme,
             'name' => isset($data['name']) ? $data['name'] : 'Untitled',
-            'filename' => '', // Will be extracted from metadata or name
+            'filename' => '',
             'url' => '',
             'thumbnail' => '',
             'download_url' => '',
             'dimensions' => '',
             'mime_type' => '',
             'size' => '',
-            'uploaded' => '',
-            'metadata' => array(),
+            'uploaded' => isset($data['lastUploaded']) ? $data['lastUploaded'] : '',
+            'metadata' => isset($data['default']) ? $data['default'] : array(),
         );
         
         // Get Canto configuration for proper URL construction
@@ -433,29 +241,80 @@ class ACF_Canto_AJAX_Handler
             $asset['size'] = size_format($data['size']);
         }
         
-        // Upload date
-        if (isset($data['lastUploaded'])) {
-            $asset['uploaded'] = $data['lastUploaded'];
-        }
-        
         return $asset;
     }
     
     /**
-     * Check if asset ID is already in results array
+     * Verify AJAX request security and permissions
      *
-     * @param string $asset_id The asset ID to search for
-     * @param array $assets Array of assets to search in
      * @return bool
      */
-    private function asset_in_results($asset_id, $assets)
+    private function verify_ajax_request()
     {
-        foreach ($assets as $asset) {
-            if (isset($asset['id']) && $asset['id'] === $asset_id) {
-                return true;
-            }
+        // Verify nonce
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'acf_canto_nonce')) {
+            $this->logger->warning('AJAX request failed nonce verification');
+            wp_die('Security check failed');
         }
-        return false;
+        
+        // Check if user has permission
+        if (!current_user_can('edit_posts')) {
+            $this->logger->warning('AJAX request from user without edit_posts capability');
+            wp_die('Insufficient permissions');
+        }
+        
+        // Check if Canto function exists (compatibility check)
+        if (!function_exists('Canto')) {
+            $this->logger->error('Canto plugin function not available');
+            wp_send_json_error('Canto plugin not found');
+            return false;
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Get specific asset by ID
+     */
+    public function get_asset()
+    {
+        // Security and permission checks
+        if (!$this->verify_ajax_request()) {
+            return;
+        }
+        
+        // Check if API is configured
+        if (!$this->api->is_configured()) {
+            $errors = $this->api->get_config_errors();
+            wp_send_json_error(implode(', ', $errors));
+            return;
+        }
+        
+        $asset_id = isset($_POST['asset_id']) ? sanitize_text_field($_POST['asset_id']) : '';
+        
+        if (empty($asset_id)) {
+            wp_send_json_error('Asset ID required');
+            return;
+        }
+        
+        $this->logger->debug('AJAX get asset request', array('asset_id' => $asset_id));
+        
+        $result = $this->api->get_asset($asset_id);
+        
+        if (is_wp_error($result)) {
+            $this->logger->error('Get asset request failed: ' . $result->get_error_message(), array('asset_id' => $asset_id));
+            wp_send_json_error($result->get_error_message());
+            return;
+        }
+        
+        $formatted_asset = $this->format_asset_data($result);
+        
+        if (!$formatted_asset) {
+            wp_send_json_error('Failed to format asset data');
+            return;
+        }
+        
+        wp_send_json_success($formatted_asset);
     }
     
     /**
@@ -463,24 +322,10 @@ class ACF_Canto_AJAX_Handler
      */
     public function get_tree()
     {
-        // Debug logging
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('ACF Canto: get_tree called');
-        }
+        $this->logger->debug('get_tree called');
 
-        // Verify nonce
-        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'acf_canto_nonce')) {
-            wp_die('Security check failed');
-        }
-        
-        // Check if user has permission
-        if (!current_user_can('edit_posts')) {
-            wp_die('Insufficient permissions');
-        }
-        
-        // Check if Canto is available
-        if (!get_option('fbc_app_token')) {
-            wp_send_json_error('Canto API token not configured');
+        // Security and permission checks
+        if (!$this->verify_ajax_request()) {
             return;
         }
         
@@ -489,9 +334,10 @@ class ACF_Canto_AJAX_Handler
         // Get Canto configuration
         $domain = get_option('fbc_flight_domain');
         $app_api = get_option('fbc_app_api') ?: 'canto.com';
+        $token = get_option('fbc_app_token');
         
-        if (!$domain) {
-            wp_send_json_error('Canto domain not configured');
+        if (!$domain || !$token) {
+            wp_send_json_error('Canto domain or token not configured');
             return;
         }
         
@@ -502,14 +348,11 @@ class ACF_Canto_AJAX_Handler
             $tree_url = 'https://' . $domain . '.' . $app_api . '/api/v1/tree?sortBy=name&sortDirection=ascending&layer=1';
         }
         
-        // Debug logging
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('ACF Canto: Tree URL: ' . $tree_url);
-        }
+        $this->logger->debug('Tree API URL', array('url' => $tree_url));
         
         // Make API call
         $headers = array(
-            'Authorization' => 'Bearer ' . get_option('fbc_app_token'),
+            'Authorization' => 'Bearer ' . $token,
             'User-Agent' => 'WordPress Plugin',
             'Content-Type' => 'application/json;charset=utf-8'
         );
@@ -520,6 +363,7 @@ class ACF_Canto_AJAX_Handler
         ));
         
         if (is_wp_error($response)) {
+            $this->logger->error('Tree API request failed', array('error' => $response->get_error_message()));
             wp_send_json_error('API request failed: ' . $response->get_error_message());
             return;
         }
@@ -534,9 +378,7 @@ class ACF_Canto_AJAX_Handler
         
         if ($http_code === 404) {
             // Tree endpoint not available, return a fallback structure
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('ACF Canto: Tree endpoint not available (404), using fallback');
-            }
+            $this->logger->info('Tree endpoint not available (404), using fallback');
             
             $fallback_data = array(
                 'results' => array(
@@ -557,6 +399,7 @@ class ACF_Canto_AJAX_Handler
         }
         
         if ($http_code !== 200) {
+            $this->logger->error('Tree API returned error', array('code' => $http_code, 'body' => substr($body, 0, 200)));
             wp_send_json_error('API request failed with HTTP code: ' . $http_code);
             return;
         }
@@ -581,33 +424,16 @@ class ACF_Canto_AJAX_Handler
      */
     public function get_album_assets()
     {
-        // Debug logging
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('ACF Canto: get_album_assets called');
-        }
+        $this->logger->debug('get_album_assets called');
 
-        // Verify nonce
-        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'acf_canto_nonce')) {
-            wp_die('Security check failed');
-        }
-        
-        // Check if user has permission
-        if (!current_user_can('edit_posts')) {
-            wp_die('Insufficient permissions');
-        }
-        
-        // Check if Canto is available
-        if (!get_option('fbc_app_token')) {
-            wp_send_json_error('Canto API token not configured');
+        // Security and permission checks
+        if (!$this->verify_ajax_request()) {
             return;
         }
         
         $album_id = isset($_POST['album_id']) ? sanitize_text_field($_POST['album_id']) : '';
         
-        // Debug logging
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('ACF Canto: Album ID: ' . $album_id);
-        }
+        $this->logger->debug('Album ID requested', array('album_id' => $album_id));
         
         if (empty($album_id)) {
             wp_send_json_error('Album ID required');
@@ -624,22 +450,19 @@ class ACF_Canto_AJAX_Handler
         // Get Canto configuration
         $domain = get_option('fbc_flight_domain');
         $app_api = get_option('fbc_app_api') ?: 'canto.com';
+        $token = get_option('fbc_app_token');
         
-        if (!$domain) {
-            wp_send_json_error('Canto domain not configured');
+        if (!$domain || !$token) {
+            wp_send_json_error('Canto domain or token not configured');
             return;
         }
         
-        // Build album URL
+        // Build album URL - try multiple endpoints
         $start = 0;
         $limit = 50;
         
         // File types as used in the Canto plugin
-        $fileType4Images = "GIF|JPG|PNG|SVG|WEBP|";
-        $fileType4Documents = "DOC|KEY|ODT|PDF|PPT|XLS|";
-        $fileType4Audio = "MPEG|M4A|OGG|WAV|";
-        $fileType4Video = "AVI|MP4|MOV|OGG|VTT|WMV|3GP";
-        $fileType = $fileType4Images . $fileType4Documents . $fileType4Audio . $fileType4Video;
+        $fileType = 'GIF|JPG|PNG|SVG|WEBP|DOC|KEY|ODT|PDF|PPT|XLS|MPEG|M4A|OGG|WAV|AVI|MP4|MOV|OGG|VTT|WMV|3GP';
         
         // Try different album/folder endpoints
         $endpoints_to_try = array(
@@ -650,7 +473,7 @@ class ACF_Canto_AJAX_Handler
         
         // Make API call
         $headers = array(
-            'Authorization' => 'Bearer ' . get_option('fbc_app_token'),
+            'Authorization' => 'Bearer ' . $token,
             'User-Agent' => 'WordPress Plugin',
             'Content-Type' => 'application/json;charset=utf-8'
         );
@@ -658,20 +481,12 @@ class ACF_Canto_AJAX_Handler
         $assets = array();
         
         foreach ($endpoints_to_try as $endpoint_name => $album_url) {
-            // Debug logging
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('ACF Canto: Trying ' . $endpoint_name . ' URL: ' . $album_url);
-            }
+            $this->logger->debug('Trying album endpoint', array('endpoint' => $endpoint_name, 'url' => $album_url));
             
             $response = wp_remote_get($album_url, array(
                 'headers' => $headers,
                 'timeout' => 30
             ));
-            
-            // Debug logging for API response
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('ACF Canto: ' . $endpoint_name . ' API Response Code: ' . wp_remote_retrieve_response_code($response));
-            }
             
             if (is_wp_error($response)) {
                 continue; // Try next endpoint
@@ -693,10 +508,7 @@ class ACF_Canto_AJAX_Handler
                             }
                         }
                         
-                        // Debug logging
-                        if (defined('WP_DEBUG') && WP_DEBUG) {
-                            error_log('ACF Canto: Found ' . count($assets) . ' assets using ' . $endpoint_name . ' for ID ' . $album_id);
-                        }
+                        $this->logger->debug('Found assets using endpoint', array('endpoint' => $endpoint_name, 'count' => count($assets), 'album_id' => $album_id));
                         
                         break; // Success, stop trying other endpoints
                     }
@@ -706,9 +518,7 @@ class ACF_Canto_AJAX_Handler
         
         // If no assets found, it might be a folder with subfolders only
         if (empty($assets)) {
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('ACF Canto: No assets found for album/folder ' . $album_id . ', it might be a folder with only subfolders');
-            }
+            $this->logger->info('No assets found for album/folder', array('album_id' => $album_id));
             wp_send_json_success(array()); // Return empty array instead of error
             return;
         }
@@ -721,38 +531,21 @@ class ACF_Canto_AJAX_Handler
      */
     public function find_by_filename()
     {
-        // Debug logging
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('ACF Canto: find_by_filename called');
-        }
+        $this->logger->debug('find_by_filename called');
 
-        // Verify nonce
-        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'acf_canto_nonce')) {
-            wp_die('Security check failed');
-        }
-        
-        // Check if user has permission
-        if (!current_user_can('edit_posts')) {
-            wp_die('Insufficient permissions');
-        }
-        
-        // Check if Canto is available
-        if (!get_option('fbc_app_token')) {
-            wp_send_json_error('Canto API token not configured');
+        // Security and permission checks
+        if (!$this->verify_ajax_request()) {
             return;
         }
         
         $filename = isset($_POST['filename']) ? sanitize_text_field($_POST['filename']) : '';
         
         if (empty($filename)) {
-            wp_send_json_error('Filename required');
+            wp_send_json_error(__('Filename required', 'acf-canto-field'));
             return;
         }
         
-        // Debug logging
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('ACF Canto: Searching for filename: ' . $filename);
-        }
+        $this->logger->debug('AJAX find by filename request', array('filename' => $filename));
         
         // Use the field class method for consistency
         if (class_exists('ACF_Field_Canto')) {
@@ -762,10 +555,10 @@ class ACF_Canto_AJAX_Handler
             if ($asset) {
                 wp_send_json_success($asset);
             } else {
-                wp_send_json_error('Asset not found with filename: ' . $filename);
+                wp_send_json_error(__('Asset not found with filename: ', 'acf-canto-field') . $filename);
             }
         } else {
-            wp_send_json_error('ACF Canto Field class not available');
+            wp_send_json_error(__('ACF Canto Field class not available', 'acf-canto-field'));
         }
     }
 }

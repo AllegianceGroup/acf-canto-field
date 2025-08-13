@@ -17,11 +17,13 @@ if (!defined('WP_UNINSTALL_PLUGIN')) {
 function acf_canto_field_uninstall_cleanup() {
     global $wpdb;
     
-    // Remove transients created by the plugin
+    // Remove all plugin transients (old and new cache keys)
     $wpdb->query(
         "DELETE FROM {$wpdb->options} 
          WHERE option_name LIKE '_transient_canto_asset_%' 
-         OR option_name LIKE '_transient_timeout_canto_asset_%'"
+         OR option_name LIKE '_transient_timeout_canto_asset_%'
+         OR option_name LIKE '_transient_acf_canto_%' 
+         OR option_name LIKE '_transient_timeout_acf_canto_%'"
     );
     
     // Remove plugin options
