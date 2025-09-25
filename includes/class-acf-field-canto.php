@@ -441,6 +441,55 @@ class ACF_Field_Canto extends acf_field
     }
     
     /**
+     * Extract asset ID from various URL formats
+     *
+     * @param string $url The URL to extract asset ID from
+     * @return string|false Asset ID if found, false otherwise
+     */
+    private function extract_asset_id_from_url($url) {
+        if (empty($url)) {
+            return false;
+        }
+        
+        // Pattern 1: Direct document URL - /direct/document/ASSET_ID/TOKEN/original
+        if (preg_match('/\/direct\/document\/([^\/\?]+)\/[^\/]+\/original/', $url, $matches)) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('ACF Canto Field: Extracted asset ID from direct URL: ' . $matches[1]);
+            }
+            return $matches[1];
+        }
+        
+        // Pattern 2: Direct document URL without /original - /direct/document/ASSET_ID
+        if (preg_match('/\/direct\/document\/([^\/\?]+)/', $url, $matches)) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('ACF Canto Field: Extracted asset ID from direct URL (no /original): ' . $matches[1]);
+            }
+            return $matches[1];
+        }
+        
+        // Pattern 3: API binary URL - /api_binary/v1/document/ASSET_ID
+        if (preg_match('/\/api_binary\/v1\/(?:advance\/)?(?:image|video|document)\/([a-zA-Z0-9]+)/', $url, $matches)) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('ACF Canto Field: Extracted asset ID from API binary URL: ' . $matches[1]);
+            }
+            return $matches[1];
+        }
+        
+        // Pattern 4: Any other document URL with recognizable ID pattern
+        if (preg_match('/\/document\/([a-zA-Z0-9_-]{15,})/', $url, $matches)) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('ACF Canto Field: Extracted asset ID from generic document URL: ' . $matches[1]);
+            }
+            return $matches[1];
+        }
+        
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('ACF Canto Field: Could not extract asset ID from URL: ' . $url);
+        }
+        return false;
+    }
+
+    /**
      * Find asset by download URL
      *
      * @param string $download_url The download URL to search for
@@ -452,10 +501,10 @@ class ACF_Field_Canto extends acf_field
             return false;
         }
         
-        // Try to extract asset ID from download URL
-        // URLs are typically like: https://domain.canto.com/api_binary/v1/TYPE/ASSET_ID/download...
-        if (preg_match('/\/api_binary\/v1\/(?:advance\/)?(?:image|video|document)\/([a-zA-Z0-9]+)/', $download_url, $matches)) {
-            $asset_id = $matches[1];
+        // Try to extract asset ID from download URL - supports multiple URL formats
+        $asset_id = $this->extract_asset_id_from_url($download_url);
+        
+        if ($asset_id) {
             if (defined('WP_DEBUG') && WP_DEBUG) {
                 error_log('ACF Canto Field: Extracted asset ID from download URL: ' . $asset_id);
             }
@@ -688,9 +737,12 @@ class ACF_Field_Canto extends acf_field
             }
         }
         
-        // Get URLs and other data (similar to existing logic)
+        // Get URLs and other data
         $domain = get_option('fbc_flight_domain');
         $app_api = get_option('fbc_app_api') ?: 'canto.com';
+        
+        // Initialize direct_url field
+        $formatted_data['direct_url'] = '';
         
         if (isset($data['url'])) {
             if (isset($data['url']['preview'])) {
@@ -699,19 +751,36 @@ class ACF_Field_Canto extends acf_field
             if (isset($data['url']['download'])) {
                 $formatted_data['download_url'] = $data['url']['download'];
             }
+            if (isset($data['url']['direct'])) {
+                $formatted_data['direct_url'] = $data['url']['direct'];
+            }
             if (isset($data['url']['directUrlPreview'])) {
                 $formatted_data['thumbnail'] = $data['url']['directUrlPreview'];
+                // Sometimes direct URL is in directUrlPreview, check if it's a direct document URL
+                if (empty($formatted_data['direct_url']) && strpos($data['url']['directUrlPreview'], '/direct/document/') !== false) {
+                    $formatted_data['direct_url'] = $data['url']['directUrlPreview'];
+                }
             }
         }
         
-        // If no download URL from API, construct one using binary API
-        if (empty($formatted_data['download_url']) && $domain) {
-            if ($scheme === 'image') {
-                $formatted_data['download_url'] = 'https://' . $domain . '.' . $app_api . '/api_binary/v1/advance/image/' . $data['id'] . '/download/directuri?type=jpg&dpi=72';
-            } elseif ($scheme === 'video') {
-                $formatted_data['download_url'] = 'https://' . $domain . '.' . $app_api . '/api_binary/v1/video/' . $data['id'] . '/download';
-            } elseif ($scheme === 'document') {
-                $formatted_data['download_url'] = 'https://' . $domain . '.' . $app_api . '/api_binary/v1/document/' . $data['id'] . '/download';
+        // Priority 1: Construct direct document URL (preferred format)
+        if (empty($formatted_data['direct_url']) && $domain) {
+            $formatted_data['direct_url'] = 'https://' . $domain . '.' . $app_api . '/direct/document/' . $data['id'];
+        }
+        
+        // Priority 2: If no download URL from API, construct one using direct URL first, then binary API
+        if (empty($formatted_data['download_url'])) {
+            if (!empty($formatted_data['direct_url'])) {
+                $formatted_data['download_url'] = $formatted_data['direct_url'];
+            } elseif ($domain) {
+                // Fallback to API binary URLs
+                if ($scheme === 'image') {
+                    $formatted_data['download_url'] = 'https://' . $domain . '.' . $app_api . '/api_binary/v1/advance/image/' . $data['id'] . '/download/directuri?type=jpg&dpi=72';
+                } elseif ($scheme === 'video') {
+                    $formatted_data['download_url'] = 'https://' . $domain . '.' . $app_api . '/api_binary/v1/video/' . $data['id'] . '/download';
+                } elseif ($scheme === 'document') {
+                    $formatted_data['download_url'] = 'https://' . $domain . '.' . $app_api . '/api_binary/v1/document/' . $data['id'] . '/download';
+                }
             }
         }
         
@@ -832,21 +901,7 @@ class ACF_Field_Canto extends acf_field
         return $this->formatter->format_from_api($result, $asset_id);
     }
     
-    /**
-     * Extract asset ID from download URL
-     *
-     * @param string $download_url
-     * @return string|false Asset ID or false if not found
-     */
-    private function extract_asset_id_from_url($download_url)
-    {
-        // URLs are typically like: https://domain.canto.com/api_binary/v1/TYPE/ASSET_ID/download...
-        if (preg_match('/\/api_binary\/v1\/(?:advance\/)?(?:image|video|document)\/([a-zA-Z0-9]+)/', $download_url, $matches)) {
-            return $matches[1];
-        }
-        
-        return false;
-    }
+
     
     /**
      * Search for asset by download URL using API

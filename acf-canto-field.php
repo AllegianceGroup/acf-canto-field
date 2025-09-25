@@ -1,19 +1,14 @@
 <?php
 /**
  * Plugin Name: ACF Canto Field
- * Plugin URI: https://github.com/AllegianceGroup/acf-canto-field
- * Description: A high-performance custom ACF field that integrates with the Canto plugin to allow users to select assets directly from their Canto library. Features advanced caching, comprehensive error handling, and configurable logging.
- * Version: 2.1.0
- * Author: AGP
- * Author URI: https://teamallegiance.com
+ * Description: A custom Advanced Custom Fields field type for integrating with Canto digital asset management. Supports direct document URLs and multiple asset formats with enhanced URL pattern recognition.
+ * Version: 2.2.0
+ * Author: Your Name
  * License: GPL v2 or later
- * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: acf-canto-field
- * Domain Path: /languages
  * Requires at least: 5.0
- * Tested up to: 6.5
+ * Tested up to: 6.4
  * Requires PHP: 7.4
- * Network: false
  */
 
 // Exit if accessed directly
@@ -22,9 +17,85 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('ACF_CANTO_FIELD_VERSION', '2.1.0');
+define('ACF_CANTO_FIELD_VERSION', '2.2.0');
+define('ACF_CANTO_FIELD_PLUGIN_FILE', __FILE__);
 define('ACF_CANTO_FIELD_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('ACF_CANTO_FIELD_PLUGIN_PATH', plugin_dir_path(__FILE__));
+
+/**
+ * Helper function to extract asset ID from various URL formats
+ *
+ * @param string $url The URL to extract asset ID from
+ * @return string|false Asset ID if found, false otherwise
+ */
+function acf_canto_extract_asset_id($url) {
+    if (empty($url) || !filter_var($url, FILTER_VALIDATE_URL)) {
+        return false;
+    }
+    
+    // Pattern 1: Direct document URL - /direct/document/ASSET_ID/TOKEN/original
+    if (preg_match('/\/direct\/document\/([^\/\?]+)\/[^\/]+\/original/', $url, $matches)) {
+        return $matches[1];
+    }
+    
+    // Pattern 2: Direct document URL without /original - /direct/document/ASSET_ID
+    if (preg_match('/\/direct\/document\/([^\/\?]+)/', $url, $matches)) {
+        return $matches[1];
+    }
+    
+    // Pattern 3: API binary URL - /api_binary/v1/document/ASSET_ID
+    if (preg_match('/\/api_binary\/v1\/document\/([^\/\?]+)/', $url, $matches)) {
+        return $matches[1];
+    }
+    
+    // Pattern 4: Any other document URL with recognizable ID pattern
+    if (preg_match('/\/document\/([a-zA-Z0-9_-]{15,})/', $url, $matches)) {
+        return $matches[1];
+    }
+    
+    return false;
+}
+
+/**
+ * Helper function to get asset data with URL fallback
+ *
+ * @param string $identifier Can be asset ID, download URL, or filename
+ * @return array|false Asset data if found, false otherwise
+ */
+function acf_canto_get_asset($identifier) {
+    if (empty($identifier)) {
+        return false;
+    }
+    
+    if (!class_exists('ACF_Field_Canto')) {
+        return false;
+    }
+    
+    $field = new ACF_Field_Canto();
+    
+    // If it looks like a URL, try URL-based lookup
+    if (filter_var($identifier, FILTER_VALIDATE_URL)) {
+        $asset_data = $field->find_asset_by_download_url($identifier);
+        if ($asset_data) {
+            return $asset_data;
+        }
+    }
+    
+    // If it looks like an asset ID (alphanumeric, longer than 10 chars), try direct lookup
+    if (preg_match('/^[a-zA-Z0-9_-]+$/', $identifier) && strlen($identifier) > 10) {
+        $asset_data = $field->get_canto_asset_data($identifier);
+        if ($asset_data) {
+            return $asset_data;
+        }
+    }
+    
+    // If it contains a dot, assume it's a filename and try filename search
+    if (strpos($identifier, '.') !== false) {
+        return $field->find_asset_by_filename($identifier);
+    }
+    
+    return false;
+}
 
 /**
  * Helper function to find Canto asset by filename
@@ -42,38 +113,9 @@ function acf_canto_find_asset_by_filename($filename) {
     return $field->find_asset_by_filename($filename);
 }
 
-/**
- * Helper function to get asset data with filename fallback
- *
- * @param string $identifier Can be asset ID or filename
- * @return array|false Asset data if found, false otherwise
- */
-function acf_canto_get_asset($identifier) {
-    if (empty($identifier)) {
-        return false;
-    }
-    
-    if (!class_exists('ACF_Field_Canto')) {
-        return false;
-    }
-    
-    $field = new ACF_Field_Canto();
-    
-    // If it looks like an asset ID (starts with common Canto ID patterns), try direct lookup first
-    if (preg_match('/^[a-zA-Z0-9_-]+$/', $identifier) && strlen($identifier) > 10) {
-        $asset_data = $field->get_canto_asset_data($identifier);
-        if ($asset_data) {
-            return $asset_data;
-        }
-    }
-    
-    // If direct lookup failed or identifier looks like a filename, try filename search
-    if (strpos($identifier, '.') !== false) {
-        return $field->find_asset_by_filename($identifier);
-    }
-    
-    return false;
-}
+
+
+
 define('ACF_CANTO_FIELD_PLUGIN_BASENAME', plugin_basename(__FILE__));
 
 /**

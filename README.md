@@ -1,41 +1,71 @@
 # ACF Canto Field
 
-A custom Advanced Custom Fields (ACF) field that integrates with the Canto plugin to allow users to select assets directly from their Canto library.
+A custom Advanced Custom Fields (ACF) field that integrates with the Canto plugin to allow users to select assets directly from their Canto library. **Version 2.2.0** features enhanced direct URL support and WP All Import Pro compatibility.
 
 ## Description
 
-This plugin extends ACF by adding a new field type called "Canto Asset" that enables users to browse and select digital assets from their Canto library without leaving the WordPress admin interface.
+This plugin extends ACF by adding a new field type called "Canto Asset" that enables users to browse and select digital assets from their Canto library without leaving the WordPress admin interface. The plugin supports multiple URL formats including direct document URLs and provides seamless integration with import tools.
+
+## Key Features
+
+- ✅ **Direct URL Support**: Full support for Canto's direct document URLs (`/direct/document/ASSET_ID/TOKEN/original`)
+- ✅ **WP All Import Pro Compatible**: Import assets directly using URLs from CSV/XML files  
+- ✅ **Multiple URL Formats**: Supports both legacy API binary URLs and modern direct URLs
+- ✅ **Smart Asset Detection**: Automatically extracts asset IDs from various URL patterns
+- ✅ **Comprehensive Caching**: 1-hour transient caching for optimal performance
+- ✅ **Security First**: Nonce verification and capability checks on all AJAX requests
+- ✅ **Error Resilience**: Graceful fallback handling and comprehensive logging
 
 ## Requirements
 
 - WordPress 5.0 or higher
-- Advanced Custom Fields (ACF) plugin
+- Advanced Custom Fields (ACF) plugin  
 - Canto plugin (configured with valid API credentials)
 - PHP 7.4 or higher
+- **For Direct URLs**: Canto domain and API token properly configured
 
 ## Installation
 
 1. Upload the `acf-canto-field` folder to your `/wp-content/plugins/` directory
 2. Activate the plugin through the 'Plugins' menu in WordPress
 3. Make sure you have ACF and the Canto plugin installed and configured
+4. Verify your Canto plugin settings include:
+   - Valid **Domain** (e.g., `yourcompany`)
+   - Valid **API Token** with appropriate permissions
+   - **API Domain** (usually `canto.com`)
 
 ## Usage
 
 ### Adding a Canto Asset Field
 
-1. Go to Custom Fields > Field Groups in your WordPress admin
+1. Go to **Custom Fields > Field Groups** in your WordPress admin
 2. Create a new field group or edit an existing one
-3. Add a new field and select "Canto Asset" as the field type
+3. Add a new field and select **"Canto Asset"** as the field type
 4. Configure the field settings:
    - **Field Label**: Display name for the field
-   - **Field Name**: Used in code to retrieve the field value
+   - **Field Name**: Used in code to retrieve the field value  
    - **Return Format**: Choose how you want the field value returned:
      - `Object`: Returns the complete asset data with all metadata (default)
      - `ID`: Returns only the Canto asset ID as a string
-     - `URL`: Returns the asset preview URL as a string
+     - `URL`: Returns the asset download URL as a string
    - **Required**: Whether the field is required
-   - **Default Value**: Not applicable for this field type
    - **Instructions**: Help text shown to users
+
+### URL Format Support
+
+The plugin supports multiple Canto URL formats and automatically detects the correct pattern:
+
+#### Direct Document URLs (Preferred)
+```
+https://yourcompany.canto.com/direct/document/ASSET_ID/TOKEN/original?content-type=application%2Fpdf&name=filename.pdf
+```
+
+#### API Binary URLs (Legacy Support)  
+```
+https://yourcompany.canto.com/api_binary/v1/document/ASSET_ID/download
+```
+
+The plugin **prioritizes direct URLs** when available and falls back to API binary URLs for compatibility.
 
 ### Field Interface
 
@@ -45,6 +75,48 @@ The field provides a modal interface with two main tabs:
 - **Browse Tab**: Navigate through albums and folders using a tree structure
 
 Both views show asset thumbnails, names, and basic metadata. Users can select an asset by clicking on it, then confirm their selection.
+
+## WP All Import Pro Integration
+
+### Import Assets from CSV/XML
+
+The ACF Canto Field plugin is **fully compatible with WP All Import Pro**, allowing you to import Canto assets directly from CSV or XML files using their URLs.
+
+#### Setup Steps:
+
+1. **Prepare your import file** with a column containing Canto URLs:
+   ```csv
+   title,canto_asset
+   "Product Brochure","https://yourcompany.canto.com/direct/document/abc123def456/token123/original"
+   "Company Logo","https://yourcompany.canto.com/direct/document/xyz789uvw012/token456/original"
+   ```
+
+2. **In WP All Import Pro**:
+   - Create a new import
+   - Map your URL column to the ACF Canto field
+   - The plugin automatically validates and processes the URLs
+
+3. **Supported URL Formats for Import**:
+   - ✅ Direct document URLs: `/direct/document/ASSET_ID/TOKEN/original`
+   - ✅ Direct document URLs (simple): `/direct/document/ASSET_ID`  
+   - ✅ API binary URLs: `/api_binary/v1/document/ASSET_ID/download`
+   - ✅ Generic document URLs with recognizable patterns
+
+#### How It Works:
+
+- **URL Validation**: The plugin validates each imported URL using `filter_var($url, FILTER_VALIDATE_URL)`
+- **Asset ID Extraction**: Automatically extracts asset IDs from various URL patterns
+- **Data Resolution**: Fetches complete asset metadata from the Canto API
+- **Error Handling**: Invalid URLs are logged and skipped gracefully
+- **Caching**: Asset data is cached for 1 hour to optimize performance during large imports
+
+#### Example Import Mapping:
+
+```
+CSV Column: "asset_url" → ACF Field: "product_images" (Canto Asset type)
+```
+
+The imported URLs are automatically processed and stored. When you call `get_field('product_images')`, you'll receive the full asset object with all metadata, thumbnails, and download URLs.
 
 ### Frontend Usage
 
@@ -185,11 +257,14 @@ if ($asset) {
 
 ### `acf_canto_get_asset($identifier)`
 
-Flexible asset retrieval that works with download URLs, asset IDs, and filenames.
+Flexible asset retrieval that works with direct URLs, download URLs, asset IDs, and filenames.
 
 ```php
-// Works with download URL (primary method)
-$asset = acf_canto_get_asset('https://domain.canto.com/api_binary/v1/document/abc123/download');
+// Works with direct document URL (preferred method)
+$asset = acf_canto_get_asset('https://company.canto.com/direct/document/abc123/token456/original');
+
+// Works with API binary URL  
+$asset = acf_canto_get_asset('https://company.canto.com/api_binary/v1/document/abc123/download');
 
 // Works with asset ID
 $asset = acf_canto_get_asset('canto_asset_12345');
@@ -199,16 +274,42 @@ $asset = acf_canto_get_asset('product-brochure.pdf');
 
 if ($asset) {
     echo '<img src="' . $asset['thumbnail'] . '" alt="' . $asset['name'] . '">';
+    echo '<p>Type: ' . $asset['scheme'] . '</p>';
+    echo '<a href="' . $asset['download_url'] . '">Download</a>';
 }
 ```
 
 **Parameters:**
-- `$identifier` (string) - A Canto download URL, asset ID, or filename
+- `$identifier` (string) - A Canto direct URL, download URL, asset ID, or filename
 
 **Returns:**
 - Array of asset data if found, `false` otherwise
 
-**Note:** The function first attempts to extract the asset ID from download URLs (most efficient), then tries direct asset ID lookup, and finally falls back to filename search for backward compatibility.
+**Note:** The function uses a smart detection system: URL validation → asset ID extraction → direct asset lookup → filename search fallback.
+
+### `acf_canto_extract_asset_id($url)`
+
+Extract asset ID from various Canto URL formats.
+
+```php
+// Extract from direct document URL
+$asset_id = acf_canto_extract_asset_id('https://company.canto.com/direct/document/abc123/token456/original');
+// Returns: 'abc123'
+
+// Extract from API binary URL
+$asset_id = acf_canto_extract_asset_id('https://company.canto.com/api_binary/v1/document/xyz789/download');
+// Returns: 'xyz789'
+
+if ($asset_id) {
+    echo 'Extracted Asset ID: ' . $asset_id;
+}
+```
+
+**Supported URL Patterns:**
+- Direct document URLs: `/direct/document/ASSET_ID/TOKEN/original`
+- Direct document URLs (simple): `/direct/document/ASSET_ID`
+- API binary URLs: `/api_binary/v1/document/ASSET_ID/download`
+- Generic document URLs with recognizable ID patterns
 
 ## Features
 
@@ -286,10 +387,70 @@ define('WP_DEBUG_LOG', true);
 
 ### Advanced Logging Configuration
 
-The plugin now includes a configurable logging system with multiple debug levels:
+The plugin includes a comprehensive logging system with multiple debug levels:
 
 ```php
 // Set logging level (optional - defaults to INFO when WP_DEBUG is enabled)
+define('ACF_CANTO_LOG_LEVEL', 'DEBUG'); // DEBUG, INFO, WARNING, ERROR
+```
+
+Log messages are written to the WordPress debug log and include detailed information about API requests, URL pattern matching, and asset processing.
+
+## Changelog
+
+### Version 2.2.0 (Current)
+- ✅ **NEW**: Full support for Canto direct document URLs
+- ✅ **NEW**: WP All Import Pro compatibility for URL-based imports  
+- ✅ **NEW**: Enhanced URL pattern recognition (4 supported formats)
+- ✅ **NEW**: Smart URL prioritization (direct URLs preferred)
+- ✅ **NEW**: Helper function `acf_canto_extract_asset_id()` for URL processing
+- ✅ **IMPROVED**: Asset data formatting with direct URL construction
+- ✅ **IMPROVED**: JavaScript asset selection with priority handling
+- ✅ **IMPROVED**: Security with proper nonce verification and capability checks
+- ✅ **FIXED**: Plugin header and version constant definitions
+- ✅ **FIXED**: Missing AJAX security verification method
+
+### Version 2.1.x (Previous)
+- Download URL-based storage system
+- Comprehensive error handling and logging
+- Asset caching and performance optimization
+- Tree navigation and album browsing
+
+### Version 2.0.x (Legacy)
+- Filename-based asset identification
+- Basic search and selection functionality
+- ACF field integration
+
+## Technical Details
+
+### URL Processing Pipeline
+
+1. **URL Validation**: `filter_var($url, FILTER_VALIDATE_URL)`
+2. **Pattern Recognition**: Regex matching against 4 supported URL patterns
+3. **Asset ID Extraction**: Parse asset ID from recognized URL structure
+4. **API Resolution**: Fetch complete asset data using Canto API
+5. **Data Formatting**: Convert to standardized asset object
+6. **Caching**: Store in WordPress transients for 1 hour
+
+### Security Features
+
+- **Nonce Verification**: All AJAX requests verified with `wp_verify_nonce()`
+- **Capability Checks**: Users must have `upload_files` or `edit_posts` capabilities
+- **Input Sanitization**: All user inputs sanitized with `sanitize_text_field()`
+- **URL Validation**: Strict URL format validation before processing
+- **Error Handling**: Graceful degradation with comprehensive logging
+
+### Performance Optimizations
+
+- **Transient Caching**: Asset data cached for 1 hour to reduce API calls
+- **Lazy Loading**: Assets loaded on-demand in modal interface
+- **Efficient Queries**: Asset ID extraction minimizes search API usage
+- **Image Fallbacks**: Default thumbnails for failed image loads
+- **Smart Retries**: Automatic fallback between URL formats
+
+## Support
+
+For issues, feature requests, or contributions, please contact the development team or check the plugin documentation.
 define('ACF_CANTO_LOG_LEVEL', 4); // 1=ERROR, 2=WARNING, 3=INFO, 4=DEBUG
 
 // Example log levels:
