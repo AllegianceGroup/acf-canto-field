@@ -398,35 +398,7 @@ Log messages are written to the WordPress debug log and include detailed informa
 
 ## Changelog
 
-### Version 2.3.0 (Current)
-- ✅ **UPDATED**: Comprehensive documentation with WP All Import Pro integration guide
-- ✅ **UPDATED**: Enhanced README with technical details and troubleshooting
-- ✅ **IMPROVED**: Code review and validation completed
-- ✅ **IMPROVED**: Security verification methods validated and documented
-- ✅ **IMPROVED**: Plugin architecture review and optimization recommendations
-
-### Version 2.2.0 (Previous)
-- ✅ **NEW**: Full support for Canto direct document URLs
-- ✅ **NEW**: WP All Import Pro compatibility for URL-based imports  
-- ✅ **NEW**: Enhanced URL pattern recognition (4 supported formats)
-- ✅ **NEW**: Smart URL prioritization (direct URLs preferred)
-- ✅ **NEW**: Helper function `acf_canto_extract_asset_id()` for URL processing
-- ✅ **IMPROVED**: Asset data formatting with direct URL construction
-- ✅ **IMPROVED**: JavaScript asset selection with priority handling
-- ✅ **IMPROVED**: Security with proper nonce verification and capability checks
-- ✅ **FIXED**: Plugin header and version constant definitions
-- ✅ **FIXED**: Missing AJAX security verification method
-
-### Version 2.1.x (Previous)
-- Download URL-based storage system
-- Comprehensive error handling and logging
-- Asset caching and performance optimization
-- Tree navigation and album browsing
-
-### Version 2.0.x (Legacy)
-- Filename-based asset identification
-- Basic search and selection functionality
-- ACF field integration
+See [CHANGELOG.md](CHANGELOG.md) for detailed version history and release notes.
 
 ## Technical Details
 
@@ -454,26 +426,6 @@ Log messages are written to the WordPress debug log and include detailed informa
 - **Efficient Queries**: Asset ID extraction minimizes search API usage
 - **Image Fallbacks**: Default thumbnails for failed image loads
 - **Smart Retries**: Automatic fallback between URL formats
-
-## Support
-
-For issues, feature requests, or contributions, please contact the development team or check the plugin documentation.
-define('ACF_CANTO_LOG_LEVEL', 4); // 1=ERROR, 2=WARNING, 3=INFO, 4=DEBUG
-
-// Example log levels:
-define('ACF_CANTO_LOG_LEVEL', 1); // Only critical errors
-define('ACF_CANTO_LOG_LEVEL', 2); // Errors and warnings
-define('ACF_CANTO_LOG_LEVEL', 3); // Errors, warnings, and info messages (default)
-define('ACF_CANTO_LOG_LEVEL', 4); // All messages including detailed debug info
-```
-
-**Log Level Details:**
-- **ERROR (1)**: Critical errors that prevent functionality
-- **WARNING (2)**: Non-critical issues that should be addressed
-- **INFO (3)**: General operational messages and status updates
-- **DEBUG (4)**: Detailed debugging information including API requests/responses
-
-Check your WordPress debug log (`/wp-content/debug.log`) for detailed error messages with context data.
 
 ## Support
 
