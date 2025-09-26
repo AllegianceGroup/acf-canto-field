@@ -1,6 +1,6 @@
 # ACF Canto Field
 
-A custom Advanced Custom Fields (ACF) field that integrates with the Canto plugin to allow users to select assets directly from their Canto library. **Version 2.2.0** features enhanced direct URL support and WP All Import Pro compatibility.
+A custom Advanced Custom Fields (ACF) field that integrates with the Canto plugin to allow users to select assets directly from their Canto library. **Version 2.3.0** features enhanced direct URL support and WP All Import Pro compatibility.
 
 ## Description
 
@@ -22,7 +22,7 @@ This plugin extends ACF by adding a new field type called "Canto Asset" that ena
 - Advanced Custom Fields (ACF) plugin  
 - Canto plugin (configured with valid API credentials)
 - PHP 7.4 or higher
-- **For Direct URLs**: Canto domain and API token properly configured
+
 
 ## Installation
 
@@ -398,7 +398,14 @@ Log messages are written to the WordPress debug log and include detailed informa
 
 ## Changelog
 
-### Version 2.2.0 (Current)
+### Version 2.3.0 (Current)
+- ✅ **UPDATED**: Comprehensive documentation with WP All Import Pro integration guide
+- ✅ **UPDATED**: Enhanced README with technical details and troubleshooting
+- ✅ **IMPROVED**: Code review and validation completed
+- ✅ **IMPROVED**: Security verification methods validated and documented
+- ✅ **IMPROVED**: Plugin architecture review and optimization recommendations
+
+### Version 2.2.0 (Previous)
 - ✅ **NEW**: Full support for Canto direct document URLs
 - ✅ **NEW**: WP All Import Pro compatibility for URL-based imports  
 - ✅ **NEW**: Enhanced URL pattern recognition (4 supported formats)

@@ -5,6 +5,43 @@ All notable changes to the ACF Canto Field plugin will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2025-09-25
+
+### Added
+- **Direct URL Support**: Full support for Canto's direct document URLs (`/direct/document/ASSET_ID/TOKEN/original`)
+- **WP All Import Pro Compatibility**: Seamless import of assets directly using URLs from CSV/XML files
+- **Multi-Pattern URL Recognition**: Support for 4 different URL patterns with automatic detection
+- **Smart URL Prioritization**: Direct URLs preferred over legacy API binary URLs
+- **New Helper Function**: `acf_canto_extract_asset_id()` for extracting asset IDs from various URL formats
+- **Enhanced Asset Data Formatting**: Constructs direct URLs by default when possible
+- **Comprehensive Documentation**: Updated README with detailed usage examples and technical specifications
+
+### Changed
+- **MAJOR ENHANCEMENT**: Direct URLs now prioritized as the default format throughout the plugin
+- **JavaScript Asset Selection**: Updated with 4-tier URL prioritization system (direct_url → download_url → constructed direct → API binary)
+- **Asset Data Processing**: Enhanced `format_asset_data_from_search()` to construct and prioritize direct URLs
+- **URL Pattern Matching**: Expanded from 1 to 4 supported URL patterns with regex optimization
+- **Import Workflow**: Optimized for WP All Import Pro with automatic URL validation and processing
+
+### Fixed
+- **Plugin Header**: Corrected corrupted plugin header information  
+- **Version Constants**: Added missing `ACF_CANTO_FIELD_VERSION` constant definition
+- **AJAX Security**: Enhanced nonce verification and capability checks in AJAX handlers
+- **Plugin Constants**: Added `ACF_CANTO_FIELD_PLUGIN_FILE`, `ACF_CANTO_FIELD_PLUGIN_URL`, and `ACF_CANTO_FIELD_PLUGIN_PATH`
+
+### Enhanced
+- **Security**: Strengthened AJAX request validation with proper nonce verification
+- **Performance**: Maintained 1-hour transient caching with optimized cache keys
+- **Error Handling**: Improved graceful fallback between URL formats
+- **User Experience**: Enhanced asset selection interface with better URL handling
+- **Developer Experience**: Comprehensive helper functions and technical documentation
+
+### Technical Details
+- **URL Processing Pipeline**: Implemented 5-stage URL validation and processing system
+- **Pattern Recognition**: Advanced regex patterns for reliable asset ID extraction
+- **Backward Compatibility**: Full support for existing API binary URLs while prioritizing direct URLs
+- **Import Integration**: Seamless WP All Import Pro integration with automatic URL processing
+
 ## [2.1.0] - 2024-08-13
 
 ### Added
